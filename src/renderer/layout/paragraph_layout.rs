@@ -836,7 +836,11 @@ impl LayoutEngine {
             let total_char_count: usize = comp_line.runs.iter()
                 .map(|r| r.text.chars().filter(|c| *c != '\t').count()).sum();
 
-            let (extra_word_sp, extra_char_sp) = if needs_justify {
+            let (extra_word_sp, extra_char_sp) = if needs_justify && has_tabs {
+                // 탭이 있는 줄: 탭이 간격을 제어하므로 양쪽 정렬 공백 분배 비적용
+                // (탭 정지가 절대 위치를 제어하여 공백 분배와 충돌)
+                (0.0, 0.0)
+            } else if needs_justify {
                 // 양쪽 정렬: 후행 공백 제외한 내부 공백에 분배
                 let all_chars: Vec<char> = comp_line.runs.iter()
                     .flat_map(|r| r.text.chars()).collect();
