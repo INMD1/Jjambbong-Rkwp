@@ -557,6 +557,81 @@ mod tests {
         }
     }
 
+    // ─── 한컴 저장본 vs rhwp reflow 비교 ───
+
+    #[test]
+    fn test_lineseg_compare_hancom_saved() {
+        let mut pairs: Vec<(String, String)> = std::fs::read_dir("samples/")
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with("re-") && name.ends_with("-hancom.hwp") {
+                    let base = name.replace("-hancom.hwp", ".hwp");
+                    Some((format!("samples/{}", name), format!("samples/{}", base)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if pairs.is_empty() {
+            eprintln!("한컴 저장본 없음 — 건너뜀");
+            return;
+        }
+
+        let mut total_compared = 0usize;
+        let mut total_line_match = 0usize;
+        let mut total_break_match = 0usize;
+        let mut total_all_match = 0usize;
+
+        for (hancom_path, _rhwp_path) in &pairs {
+            let Some(reports) = run_comparison(hancom_path) else { continue };
+            let base = std::path::Path::new(hancom_path).file_stem().unwrap().to_string_lossy();
+
+            for r in &reports {
+                total_compared += r.compared_paragraphs;
+                total_line_match += r.line_count_match_count;
+                total_break_match += r.line_break_match_count;
+                total_all_match += r.all_match_count;
+
+                eprintln!(
+                    "{}: 줄수={:.0}% 줄바꿈={:.0}% 전체={:.0}% ({}/{})",
+                    base,
+                    r.line_count_match_rate(),
+                    r.line_break_match_rate(),
+                    r.all_match_rate(),
+                    r.compared_paragraphs - r.all_match_count,
+                    r.compared_paragraphs,
+                );
+
+                // 불일치 상세 출력
+                for pd in &r.paragraph_diffs {
+                    if !pd.all_match() {
+                        for fd in &pd.field_diffs {
+                            if !fd.all_match() {
+                                eprintln!(
+                                    "  L{}: ts={} lh={} th={} bl={} ls={} sw={}",
+                                    fd.line_idx, fd.text_start_delta,
+                                    fd.line_height_delta, fd.text_height_delta,
+                                    fd.baseline_distance_delta, fd.line_spacing_delta,
+                                    fd.segment_width_delta
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let rate = |n: usize, d: usize| if d == 0 { 0.0 } else { n as f64 / d as f64 * 100.0 };
+        eprintln!("\n=== 한컴 저장본 전체 요약 ===");
+        eprintln!("비교: {}문단", total_compared);
+        eprintln!("줄 수 일치율: {:.1}%", rate(total_line_match, total_compared));
+        eprintln!("줄바꿈 위치 일치율: {:.1}%", rate(total_break_match, total_compared));
+        eprintln!("전체 필드 일치율: {:.1}%", rate(total_all_match, total_compared));
+    }
+
     /// 전체 samples/ 대상 일괄 비교 (nocapture로 실행하여 리포트 확인)
     #[test]
     fn test_lineseg_compare_all_samples() {
