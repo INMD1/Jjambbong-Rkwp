@@ -1,6 +1,7 @@
 //! 표 셀 내용 레이아웃 (세로쓰기, 셀 도형, 내장 표)
 
 use crate::model::paragraph::Paragraph;
+use crate::model::control::Control;
 use crate::model::style::Alignment;
 use crate::model::bin_data::BinDataContent;
 use crate::model::table::VerticalAlign;
@@ -372,6 +373,7 @@ impl LayoutEngine {
         container: &LayoutRect,
         y_start: f64,
         enclosing_ctx: Option<(usize, usize, &[CellPathEntry], usize)>,
+        bin_data_content: &[BinDataContent],
     ) -> f64 {
         if table.cells.is_empty() {
             return y_start;
@@ -592,6 +594,48 @@ impl LayoutEngine {
                     0.0,
                     None, Some(para), None,
                 );
+
+                // 셀 내 그림/도형 컨트롤 렌더링
+                for (ctrl_idx, ctrl) in para.controls.iter().enumerate() {
+                    match ctrl {
+                        Control::Picture(pic) => {
+                            let pic_w = hwpunit_to_px(pic.common.width as i32, self.dpi);
+                            let pic_h = hwpunit_to_px(pic.common.height as i32, self.dpi);
+                            // 셀 내부에 맞추어 크기 제한
+                            let fit_w = pic_w.min(inner_width);
+                            let fit_h = if pic_w > 0.0 { pic_h * (fit_w / pic_w) } else { pic_h };
+                            // TAC: 문단 시작 위치 (표의 왼쪽 상단)
+                            let pic_x = inner_x;
+                            // vpos 기반 y 위치: LINE_SEG의 vertical_pos 사용
+                            let pic_y = if let Some(first_ls) = para.line_segs.first() {
+                                cell_y + pad_top + hwpunit_to_px(first_ls.vertical_pos, self.dpi)
+                            } else {
+                                para_y - fit_h
+                            };
+
+                            let bin_id = pic.image_attr.bin_data_id;
+                            let img_data = find_bin_data(bin_data_content, bin_id)
+                                .map(|bd| bd.data.clone());
+                            let img_node_id = tree.next_id();
+                            let img_node = RenderNode::new(
+                                img_node_id,
+                                RenderNodeType::Image(ImageNode {
+                                    bin_data_id: bin_id,
+                                    data: img_data,
+                                    section_index: None,
+                                    para_index: None,
+                                    control_index: Some(ctrl_idx),
+                                    fill_mode: None,
+                                    original_size: None,
+                                    transform: ShapeTransform::default(),
+                                }),
+                                BoundingBox::new(pic_x, pic_y, fit_w, fit_h),
+                            );
+                            cell_node.children.push(img_node);
+                        }
+                        _ => {}
+                    }
+                }
             }
 
             table_node.children.push(cell_node);
