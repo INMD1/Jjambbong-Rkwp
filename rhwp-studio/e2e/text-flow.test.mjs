@@ -76,11 +76,12 @@ async function run() {
     console.log('\n[5] 페이지 넘김 테스트...');
     // Enter를 반복 입력하여 페이지 오버플로우 유발
     for (let i = 0; i < 40; i++) {
+      await typeText(page, `Line ${i + 1}`);
       await page.keyboard.press('Enter');
-      if (i % 10 === 9) await page.evaluate(() => new Promise(r => setTimeout(r, 200)));
+      if (i % 10 === 9) await page.evaluate(() => new Promise(r => setTimeout(r, 300)));
     }
     // 재페이지네이션 완료 대기
-    await page.evaluate(() => new Promise(r => setTimeout(r, 1500)));
+    await page.evaluate(() => new Promise(r => setTimeout(r, 1000)));
 
     const pageCount2 = await page.evaluate(() => window.__wasm?.pageCount ?? 0);
     console.log(`  페이지 수: ${pageCount2}`);
