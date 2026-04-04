@@ -2,11 +2,14 @@
 
 이 프로젝트의 주요 변경 사항을 기록합니다.
 
-## [Unreleased] — v0.5.x 개발 중
+## [0.6.0] — 2026-04-04
+
+> 조판 품질 개선 + 비기능성 기반 구축 — "알을 깨고 세상으로"
 
 ### 추가
-- **GitHub Actions CI**: 빌드 + 테스트 + Clippy 자동화 (#46, #47)
+- **GitHub Actions CI**: 빌드 + 테스트 + Clippy 엄격 모드 (#46, #47)
 - **GitHub Pages 데모**: https://edwardkim.github.io/rhwp/ (#48)
+- **GitHub Sponsors**: 후원 버튼 활성화
 - **그림 자르기(crop)**: SVG viewBox / Canvas drawImage로 이미지 crop 렌더링 (#43)
 - **이미지 테두리선**: Picture border_attr 파싱 + 외곽선 렌더링 (#43)
 - **머리말/꼬리말 Picture**: non-TAC 그림 절대 위치 배치, TAC 그림 인라인 배치 (#42)
