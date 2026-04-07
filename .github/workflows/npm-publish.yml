@@ -5,14 +5,12 @@ on:
     types: [published]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-
 jobs:
   build-wasm:
     name: Build WASM
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +47,9 @@ jobs:
     name: Publish @rhwp/core
     needs: build-wasm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +79,9 @@ jobs:
     name: Publish @rhwp/editor
     needs: build-wasm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +102,8 @@ jobs:
     name: Publish VSCode Extension
     needs: build-wasm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4

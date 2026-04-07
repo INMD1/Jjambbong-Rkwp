@@ -71,7 +71,7 @@ pasteArea.addEventListener('paste', (e) => {
 
         if (type === 'text/html') {
             html += `<h2>HTML 렌더링 결과</h2>`;
-            html += `<div class="rendered">${data}</div>`;
+            html += `<div class="rendered"><iframe sandbox srcdoc="${escapeHtml(data)}" style="width:100%;height:300px;border:1px solid #ccc;"></iframe></div>`;
 
             // 표 감지
             const hasTable = /<table[\s>]/i.test(data);

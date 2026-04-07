@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 문서 폴더 구조 (`mydocs/` 하위):
 - `orders/` - 오늘 할일 문서 (yyyymmdd.md)
-- `plans/` - 수행 계획서, 구현 계획서 (task_{milestone}_{number}.md)
+- `plans/` - 수행 계획서, 구현 계획서
 - `plans/archives/` - 완료된 계획서 보관
 - `working/` - 단계별 완료 보고서
 - `report/` - 기본 보고서
@@ -23,6 +23,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `tech/` - 기술 사항 정리 문서
 - `manual/` - 매뉴얼, 가이드 문서
 - `troubleshootings/` - 트러블슈팅 관련 문서
+
+문서 파일명 규칙 (`plans/`, `working/`):
+- 수행 계획서: `task_{milestone}_{이슈번호}.md` (예: task_m100_71.md)
+- 구현 계획서: `task_{milestone}_{이슈번호}_impl.md` (예: task_m100_71_impl.md)
+- 단계별 완료 보고서: `task_{milestone}_{이슈번호}_stage{N}.md` (예: task_m100_71_stage1.md)
+- 최종 보고서: `task_{milestone}_{이슈번호}_report.md` (예: task_m100_71_report.md)
 
 ## 빌드 및 실행
 

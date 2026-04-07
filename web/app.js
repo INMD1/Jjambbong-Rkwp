@@ -98,6 +98,13 @@ async function handleFileUpload(event) {
     }
 }
 
+/** HTML 이스케이프 */
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+
 /**
  * 문서 정보 표시
  */
@@ -109,11 +116,11 @@ function displayDocInfo(fileName, parseTime) {
         <div class="info-grid">
             <div class="info-item">
                 <span class="label">파일:</span>
-                <span class="value">${fileName}</span>
+                <span class="value">${escapeHtml(fileName)}</span>
             </div>
             <div class="info-item">
                 <span class="label">버전:</span>
-                <span class="value">${info.version}</span>
+                <span class="value">${escapeHtml(info.version)}</span>
             </div>
             <div class="info-item">
                 <span class="label">페이지:</span>

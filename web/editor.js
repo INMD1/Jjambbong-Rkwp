@@ -1154,7 +1154,8 @@ function pasteFromHtml(html) {
     } catch (err) {
         console.error('HTML 붙여넣기 오류:', err);
         // HTML 파싱 실패 시 플레인 텍스트로 fallback
-        const plainText = html.replace(/<[^>]*>/g, '').trim();
+        const parsed = new DOMParser().parseFromString(html, 'text/html');
+        const plainText = (parsed.body.textContent || '').trim();
         if (plainText) {
             handleTextInsert(plainText);
         }

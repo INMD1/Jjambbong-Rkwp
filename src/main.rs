@@ -1246,7 +1246,12 @@ fn dump_controls(args: &[String]) {
                                         },
                                         _ => format!("{:?}", std::mem::discriminant(hc)),
                                     };
-                                    println!("{}  hp[{}] ctrl[{}]: {}", prefix, hpi, hci, cn);
+                                    let display = if cn.chars().count() > 30 {
+                                        format!("{}...(truncated)", cn.chars().take(30).collect::<String>())
+                                    } else {
+                                        cn
+                                    };
+                                    println!("{}  hp[{}] ctrl[{}]: {}", prefix, hpi, hci, display);
                                 }
                             }
                         }

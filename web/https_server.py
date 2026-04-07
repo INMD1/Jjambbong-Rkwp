@@ -15,6 +15,7 @@ KEYFILE = os.path.join(CERT_DIR, 'localhost-key.pem')
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.minimum_version = ssl.TLSVersion.TLSv1_2
 context.load_cert_chain(CERTFILE, KEYFILE)
 
 server = http.server.HTTPServer((BIND, PORT), http.server.SimpleHTTPRequestHandler)
