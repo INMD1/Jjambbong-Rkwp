@@ -10,7 +10,9 @@
     "e2e": "node e2e/text-flow.test.mjs"
   },
   "dependencies": {
-    "hwpkit-extension": "file:../hwpkit-extension"
+    "hwpkit-extension": "file:../hwpkit-extension",
+    "pako": "^2.1.0",
+    "saxes": "^6.0.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.40",

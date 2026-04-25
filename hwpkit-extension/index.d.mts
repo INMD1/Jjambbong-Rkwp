@@ -21,7 +21,7 @@ interface ImgLayout {
 }
 type VAlign = 'top' | 'mid' | 'bot';
 type Heading = 1 | 2 | 3 | 4 | 5 | 6;
-type StrokeKind = 'solid' | 'dash' | 'dot' | 'double' | 'none';
+type StrokeKind = 'solid' | 'dash' | 'dot' | 'double' | 'none' | 'dashDot' | 'dashDotDot' | 'wave';
 interface TextProps {
     b?: boolean;
     i?: boolean;
@@ -39,6 +39,7 @@ interface ParaProps {
     heading?: Heading;
     styleId?: string;
     indentPt?: number;
+    indentRightPt?: number;
     firstLineIndentPt?: number;
     spaceBefore?: number;
     spaceAfter?: number;
@@ -59,6 +60,10 @@ interface CellProps {
     right?: Stroke;
     bg?: string;
     padPt?: number;
+    padT?: number;
+    padB?: number;
+    padL?: number;
+    padR?: number;
     align?: Align;
     va?: VAlign;
     isHeader?: boolean;
@@ -86,6 +91,8 @@ interface PageDims {
     ml: number;
     mr: number;
     orient?: 'portrait' | 'landscape';
+    headerPt?: number;
+    footerPt?: number;
 }
 interface DocMeta {
     title?: string;
@@ -145,7 +152,7 @@ interface LinkNode {
 interface ParaNode {
     tag: 'para';
     props: ParaProps;
-    kids: (SpanNode | ImgNode | LinkNode)[];
+    kids: (SpanNode | ImgNode | LinkNode | GridNode)[];
 }
 interface CellNode {
     tag: 'cell';
@@ -169,8 +176,16 @@ interface SheetNode {
     tag: 'sheet';
     dims: PageDims;
     kids: ContentNode[];
-    header?: ParaNode[];
-    footer?: ParaNode[];
+    headers?: {
+        default?: ParaNode[];
+        first?: ParaNode[];
+        even?: ParaNode[];
+    };
+    footers?: {
+        default?: ParaNode[];
+        first?: ParaNode[];
+        even?: ParaNode[];
+    };
 }
 interface DocRoot {
     tag: 'root';
@@ -231,8 +246,8 @@ declare const registry: FormatRegistry;
 
 declare function buildRoot(meta?: DocMeta, kids?: SheetNode[]): DocRoot;
 declare function buildSheet(kids?: ContentNode[], dims?: PageDims, opts?: {
-    header?: ParaNode[];
-    footer?: ParaNode[];
+    headers?: SheetNode["headers"];
+    footers?: SheetNode["footers"];
 }): SheetNode;
 declare function buildPageNum(format?: PageNumNode['format']): PageNumNode;
 declare function buildBr(): BrNode;

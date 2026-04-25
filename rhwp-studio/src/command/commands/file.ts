@@ -3,7 +3,7 @@ import { PageSetupDialog } from '@/ui/page-setup-dialog';
 import { AboutDialog } from '@/ui/about-dialog';
 import { showConfirm } from '@/ui/confirm-dialog';
 import { showSaveAs } from '@/ui/save-as-dialog';
-import { showExport, type ExportFormat } from '@/ui/export-dialog';
+import { showExport, showExportDialog, type ExportFormat, EXPORT_FORMATS } from '@/ui/export-dialog';
 import { Pipeline } from 'hwpkit-extension';
 import {
   pickOpenFileHandle,
@@ -67,10 +67,22 @@ export const fileCommands: CommandDef[] = [
         const saveName = services.wasm.fileName;
         const sourceFormat = services.wasm.getSourceFormat();
         const isHwpx = sourceFormat === 'hwpx';
-        const bytes = isHwpx ? services.wasm.exportHwpx() : services.wasm.exportHwp();
+
+        // WASM 에서 원본 바이트 획득
+        const rawBytes = isHwpx ? services.wasm.exportHwpx() : services.wasm.exportHwp();
+
+        // hwpkit-extension Pipeline 을 사용하여 문서 처리 (구조 검증 및 최적화)
+        const pipeline = await Pipeline.openAsync(rawBytes as Uint8Array);
+        const processResult = await pipeline.to(isHwpx ? 'hwpx' : 'hwp');
+
+        if (!processResult.ok) {
+          throw new Error(`hwpkit-extension 처리 실패: ${processResult.error}`);
+        }
+
+        const bytes = processResult.data;
         const mimeType = isHwpx ? 'application/hwp+zip' : 'application/x-hwp';
         const blob = new Blob([bytes as unknown as BlobPart], { type: mimeType });
-        console.log(`[file:save] format=${sourceFormat}, isHwpx=${isHwpx}, ${bytes.length} bytes`);
+        console.log(`[file:save] format=${sourceFormat}, isHwpx=${isHwpx}, ${bytes.length} bytes (Pipeline 처리됨)`);
 
         // 1) 기존 파일 handle이 있으면 같은 파일에 저장, 없으면 save picker 시도
         try {
@@ -182,6 +194,75 @@ export const fileCommands: CommandDef[] = [
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[file:save-as] 저장 실패:', msg);
         alert(`다른 이름으로 저장에 실패했습니다:\n${msg}`);
+      }
+    },
+  },
+  // ─── 포맷 변경하여 저장 ─────────────────────────────
+  {
+    id: 'file:save-as-format',
+    label: '포맷 변경하여 저장',
+    canExecute: (ctx) => ctx.hasDocument,
+    async execute(services) {
+      try {
+        const saveName = services.wasm.fileName;
+        const baseName = saveName.replace(/\.[^.]+$/, '');
+
+        // 포맷 선택 대화상자 표시
+        const result = await showExport(baseName);
+        if (!result) return;
+
+        const { name: fileName, format } = result;
+
+        // WASM 에서 원본 바이트 획득
+        const sourceFormat = services.wasm.getSourceFormat();
+        const isHwpx = sourceFormat === 'hwpx';
+        const rawBytes = isHwpx ? services.wasm.exportHwpx() : services.wasm.exportHwp();
+
+        // hwpkit-extension Pipeline 을 사용하여 포맷 변환
+        console.log(`[file:save-as-format] hwpkit-extension Pipeline 시작... (→ ${format})`);
+        const pipeline = await Pipeline.openAsync(rawBytes as Uint8Array);
+        const processResult = await pipeline.to(format as any);
+
+        if (!processResult.ok) {
+          throw new Error(`hwpkit-extension 처리 실패: ${processResult.error}`);
+        }
+
+        const bytes = processResult.data;
+        const formatOption = EXPORT_FORMATS.find(f => f.format === format);
+        const mimeType = formatOption?.mimeType ?? 'application/octet-stream';
+        const blob = new Blob([bytes as unknown as BlobPart], { type: mimeType });
+
+        // 새 파일로 저장
+        try {
+          const saveResult = await saveDocumentToFileSystem({
+            blob,
+            suggestedName: fileName,
+            currentHandle: null,
+            windowLike: window as FileSystemWindowLike,
+          });
+
+          if (saveResult.method !== 'fallback') {
+            console.log(`[file:save-as-format] ${fileName} (${format}, ${(bytes.length / 1024).toFixed(1)}KB)`);
+            return;
+          }
+        } catch (e) {
+          if (e instanceof DOMException && e.name === 'AbortError') return;
+          console.warn('[file:save-as-format] File System Access API 실패, 폴백:', e);
+        }
+
+        // 폴백: 브라우저 다운로드
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        console.log(`[file:save-as-format] ${fileName} (${format}, ${(bytes.length / 1024).toFixed(1)}KB)`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[file:save-as-format] 저장 실패:', msg);
+        alert(`파일 저장에 실패했습니다:\n${msg}`);
       }
     },
   },
@@ -334,7 +415,7 @@ async function showExportMenu(services: Parameters<NonNullable<CommandDef['execu
   const saveName = services.wasm.fileName;
   const baseName = saveName.replace(/\.[^.]+$/, '');
 
-  const result = await showExport(baseName);
+  const result = await showExportDialog(baseName);
   if (!result) return;
 
   await exportToFormat(services, result.format, result.name);

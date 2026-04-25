@@ -8,6 +8,9 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  optimizeDeps: {
+    include: ['pako', 'saxes'],
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

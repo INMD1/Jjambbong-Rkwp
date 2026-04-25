@@ -5,7 +5,7 @@
  */
 import { ModalDialog } from './dialog';
 
-export type ExportFormat = 'docx' | 'md' | 'html';
+export type ExportFormat = 'hwp' | 'hwpx' | 'docx' | 'md' | 'html';
 
 interface ExportFormatOption {
   format: ExportFormat;
@@ -14,7 +14,9 @@ interface ExportFormatOption {
   mimeType: string;
 }
 
-const EXPORT_FORMATS: ExportFormatOption[] = [
+export const EXPORT_FORMATS: ExportFormatOption[] = [
+  { format: 'hwp', label: '한글 문서 (.hwp)', extension: '.hwp', mimeType: 'application/x-hwp' },
+  { format: 'hwpx', label: '한글 문서 XML (.hwpx)', extension: '.hwpx', mimeType: 'application/hwp+zip' },
   { format: 'docx', label: 'Word 문서 (.docx)', extension: '.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
   { format: 'md', label: 'Markdown (.md)', extension: '.md', mimeType: 'text/markdown' },
   { format: 'html', label: 'HTML (.html)', extension: '.html', mimeType: 'text/html' },
@@ -140,4 +142,10 @@ class ExportDialog extends ModalDialog {
 /** 내보내기 대화상자를 표시하고 사용자가 선택한 파일 이름과 포맷을 반환한다. 취소 시 null. */
 export function showExport(defaultName: string, formats?: ExportFormatOption[]): Promise<{ name: string; format: ExportFormat } | null> {
   return new ExportDialog(defaultName, formats).showAsync();
+}
+
+/** 내보내기 대화상자를 표시한다. HWP/HWPX 포맷은 제외되며, DOCX/MD/HTML 만 선택 가능하다. */
+export function showExportDialog(defaultName: string): Promise<{ name: string; format: ExportFormat } | null> {
+  const exportFormats = EXPORT_FORMATS.filter(f => !['hwp', 'hwpx'].includes(f.format));
+  return new ExportDialog(defaultName, exportFormats).showAsync();
 }
