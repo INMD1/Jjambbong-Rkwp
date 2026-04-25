@@ -9,6 +9,9 @@
     "preview": "vite preview",
     "e2e": "node e2e/text-flow.test.mjs"
   },
+  "dependencies": {
+    "hwpkit-extension": "file:../hwpkit-extension"
+  },
   "devDependencies": {
     "@types/chrome": "^0.1.40",
     "puppeteer-core": "^24.40.0",

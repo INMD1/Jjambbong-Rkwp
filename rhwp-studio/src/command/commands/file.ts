@@ -3,6 +3,7 @@ import { PageSetupDialog } from '@/ui/page-setup-dialog';
 import { AboutDialog } from '@/ui/about-dialog';
 import { showConfirm } from '@/ui/confirm-dialog';
 import { showSaveAs } from '@/ui/save-as-dialog';
+import { Pipeline } from 'hwpkit-extension';
 import {
   pickOpenFileHandle,
   readFileFromHandle,
@@ -115,6 +116,71 @@ export const fileCommands: CommandDef[] = [
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[file:save] 저장 실패:', msg);
         alert(`파일 저장에 실패했습니다:\n${msg}`);
+      }
+    },
+  },
+  {
+    id: 'file:save-as',
+    label: '다른 이름으로 저장',
+    canExecute: (ctx) => ctx.hasDocument && ctx.sourceFormat !== 'hwpx',
+    async execute(services) {
+      try {
+        const saveName = services.wasm.fileName;
+        const sourceFormat = services.wasm.getSourceFormat();
+        const isHwpx = sourceFormat === 'hwpx';
+        const rawBytes = isHwpx ? services.wasm.exportHwpx() : services.wasm.exportHwp();
+        
+        // hwpkit-extension Pipeline을 사용하여 문서 처리 (우리가 만든 기능 적용)
+        console.log(`[file:save-as] hwpkit-extension Pipeline 시작...`);
+        const pipeline = await Pipeline.openAsync(rawBytes as Uint8Array);
+        const processResult = await pipeline.to(isHwpx ? 'hwpx' : 'hwp');
+        
+        if (!processResult.ok) {
+          throw new Error(`hwpkit-extension 처리 실패: ${processResult.error}`);
+        }
+        
+        const bytes = processResult.data;
+        const mimeType = isHwpx ? 'application/hwp+zip' : 'application/x-hwp';
+        const blob = new Blob([bytes as unknown as BlobPart], { type: mimeType });
+
+        // '다른 이름으로 저장'은 항상 새 파일 선택 창(save picker)을 띄운다 (currentHandle: null)
+        try {
+          const saveResult = await saveDocumentToFileSystem({
+            blob,
+            suggestedName: saveName,
+            currentHandle: null, // 무조건 새 위치 선택
+            windowLike: window as FileSystemWindowLike,
+          });
+
+          if (saveResult.method !== 'fallback') {
+            services.wasm.currentFileHandle = saveResult.handle;
+            services.wasm.fileName = saveResult.fileName;
+            console.log(`[file:save-as] ${saveResult.fileName} (${(bytes.length / 1024).toFixed(1)}KB)`);
+            return;
+          }
+        } catch (e) {
+          if (e instanceof DOMException && e.name === 'AbortError') return;
+          console.warn('[file:save-as] File System Access API 실패, 폴백:', e);
+        }
+
+        // 폴백: 브라우저 다운로드 방식 (파일 이름 입력받음)
+        const baseName = saveName.replace(/\.hwp$/i, '');
+        const result = await showSaveAs(baseName);
+        if (!result) return;
+        const downloadName = result;
+        
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = downloadName;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        console.log(`[file:save-as] ${downloadName} (${(bytes.length / 1024).toFixed(1)}KB)`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[file:save-as] 저장 실패:', msg);
+        alert(`다른 이름으로 저장에 실패했습니다:\n${msg}`);
       }
     },
   },
