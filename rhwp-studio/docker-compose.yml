@@ -1,0 +1,17 @@
+services:
+  rhwp-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rhwp-studio-dev
+    ports:
+      - "7700:7700"
+    volumes:
+      # 소스 코드 hot-reload
+      - ./src:/app/src
+      - ./index.html:/app/index.html
+      # node_modules 은 컨테이너 내부 사용 (볼륨 제외)
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped

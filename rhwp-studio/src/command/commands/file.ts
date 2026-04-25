@@ -199,6 +199,7 @@ export const fileCommands: CommandDef[] = [
   },
   // ─── 포맷 변경하여 저장 ─────────────────────────────
   {
+    icon: 'icon-save',
     id: 'file:save-as-format',
     label: '포맷 변경하여 저장',
     canExecute: (ctx) => ctx.hasDocument,
