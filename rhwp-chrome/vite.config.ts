@@ -21,6 +21,9 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, '..', 'rhwp-studio', 'src'),
       '@wasm': resolve(__dirname, '..', 'pkg'),
+      'hwpkit-extension': resolve(__dirname, '..', 'hwpkit-extension'),
+      'pako': resolve(__dirname, 'node_modules', 'pako'),
+      'saxes': resolve(__dirname, 'node_modules', 'saxes'),
     },
   },
   build: {

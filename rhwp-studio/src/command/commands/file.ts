@@ -3,6 +3,7 @@ import { PageSetupDialog } from '@/ui/page-setup-dialog';
 import { AboutDialog } from '@/ui/about-dialog';
 import { showConfirm } from '@/ui/confirm-dialog';
 import { showSaveAs } from '@/ui/save-as-dialog';
+import { showExport, type ExportFormat } from '@/ui/export-dialog';
 import { Pipeline } from 'hwpkit-extension';
 import {
   pickOpenFileHandle,
@@ -184,6 +185,39 @@ export const fileCommands: CommandDef[] = [
       }
     },
   },
+  // ─── 내보내기 (Export) ─────────────────────────────────
+  {
+    id: 'file:export',
+    label: '내보내기',
+    canExecute: (ctx) => ctx.hasDocument,
+    async execute(services) {
+      await showExportMenu(services);
+    },
+  },
+  {
+    id: 'file:export-docx',
+    label: 'Word 문서 (.docx)',
+    canExecute: (ctx) => ctx.hasDocument,
+    async execute(services) {
+      await exportToFormat(services, 'docx');
+    },
+  },
+  {
+    id: 'file:export-md',
+    label: 'Markdown (.md)',
+    canExecute: (ctx) => ctx.hasDocument,
+    async execute(services) {
+      await exportToFormat(services, 'md');
+    },
+  },
+  {
+    id: 'file:export-html',
+    label: 'HTML (.html)',
+    canExecute: (ctx) => ctx.hasDocument,
+    async execute(services) {
+      await exportToFormat(services, 'html');
+    },
+  },
   {
     id: 'file:page-setup',
     label: '편집 용지',
@@ -293,3 +327,90 @@ ${svgPages.map(svg => `<div class="page">${svg}</div>`).join('\n')}
     },
   },
 ];
+
+// ─── 내보내기 헬퍼 함수 ──────────────────────────────
+/** 내보내기 메뉴 표시 (드롭다운 항목 클릭 시 호출됨) */
+async function showExportMenu(services: Parameters<NonNullable<CommandDef['execute']>>[0]) {
+  const saveName = services.wasm.fileName;
+  const baseName = saveName.replace(/\.[^.]+$/, '');
+
+  const result = await showExport(baseName);
+  if (!result) return;
+
+  await exportToFormat(services, result.format, result.name);
+}
+
+/** 지정된 포맷으로 내보내기 */
+async function exportToFormat(
+  services: Parameters<NonNullable<CommandDef['execute']>>[0],
+  format: ExportFormat,
+  suggestedName?: string,
+): Promise<void> {
+  try {
+    const wasm = services.wasm;
+    const sourceFormat = wasm.getSourceFormat();
+    const isHwpx = sourceFormat === 'hwpx';
+
+    // 원본 바이트 획득
+    const rawBytes = isHwpx ? wasm.exportHwpx() : wasm.exportHwp();
+
+    console.log(`[export:${format}] hwpkit-extension Pipeline 시작...`);
+
+    // Pipeline 을 사용하여 포맷 변환
+    const pipeline = await Pipeline.openAsync(rawBytes as Uint8Array);
+    const processResult = await pipeline.to(format);
+
+    if (!processResult.ok) {
+      throw new Error(`hwpkit-extension 변환 실패: ${processResult.error}`);
+    }
+
+    const bytes = processResult.data;
+
+    // 포맷별 설정
+    const formatConfig = {
+      docx: { ext: '.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      md: { ext: '.md', mimeType: 'text/markdown' },
+      html: { ext: '.html', mimeType: 'text/html' },
+    }[format];
+
+    // 파일 이름 결정
+    let fileName = suggestedName ?? wasm.fileName;
+    if (!fileName.toLowerCase().endsWith(formatConfig.ext)) {
+      fileName = fileName.replace(/\.[^.]+$/, '') + formatConfig.ext;
+    }
+
+    const blob = new Blob([bytes as unknown as BlobPart], { type: formatConfig.mimeType });
+
+    // File System Access API 로 저장 시도
+    try {
+      const saveResult = await saveDocumentToFileSystem({
+        blob,
+        suggestedName: fileName,
+        currentHandle: null, // 내보내기는 항상 새 파일
+        windowLike: window as FileSystemWindowLike,
+      });
+
+      if (saveResult.method !== 'fallback') {
+        console.log(`[export:${format}] ${saveResult.fileName} (${(bytes.length / 1024).toFixed(1)}KB)`);
+        return;
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      console.warn(`[export:${format}] File System Access API 실패, 폴백:`, e);
+    }
+
+    // 폴백: 브라우저 다운로드 방식
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    console.log(`[export:${format}] ${fileName} (${(bytes.length / 1024).toFixed(1)}KB)`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[export:${format}]`, msg);
+    alert(`내보내기에 실패했습니다:\n${msg}`);
+  }
+}
