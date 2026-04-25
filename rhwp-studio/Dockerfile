@@ -2,12 +2,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# 의존성 복사 및 설치
-COPY package*.json ./
-RUN npm install
-
-# 소스 코드 복사
+# 전체 소스 복사 (package.json 포함)
 COPY . .
+
+# 의존성 설치
+RUN npm install
 
 # 포트 노출
 EXPOSE 7700
