@@ -7,9 +7,8 @@ services:
     ports:
       - "7700:7700"
     volumes:
-      # 소스 코드 hot-reload
-      - ./src:/app/src
-      - ./index.html:/app/index.html
+      # 전체 프로젝트 디렉토리 마운트 (Coolify 호환)
+      - .:/app
       # node_modules 은 컨테이너 내부 사용 (볼륨 제외)
       - /app/node_modules
     environment:

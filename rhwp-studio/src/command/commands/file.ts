@@ -449,16 +449,15 @@ async function exportToFormat(
     const bytes = processResult.data;
 
     // 포맷별 설정
-    const formatConfig = {
-      docx: { ext: '.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-      md: { ext: '.md', mimeType: 'text/markdown' },
-      html: { ext: '.html', mimeType: 'text/html' },
-    }[format];
+    const formatConfig = EXPORT_FORMATS.find((f) => f.format === format);
+    if (!formatConfig) {
+      throw new Error(`지원하지 않는 내보내기 형식입니다: ${format}`);
+    }
 
     // 파일 이름 결정
     let fileName = suggestedName ?? wasm.fileName;
-    if (!fileName.toLowerCase().endsWith(formatConfig.ext)) {
-      fileName = fileName.replace(/\.[^.]+$/, '') + formatConfig.ext;
+    if (!fileName.toLowerCase().endsWith(formatConfig.extension)) {
+      fileName = fileName.replace(/\.[^.]+$/, '') + formatConfig.extension;
     }
 
     const blob = new Blob([bytes as unknown as BlobPart], { type: formatConfig.mimeType });
