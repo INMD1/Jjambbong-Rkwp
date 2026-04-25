@@ -1,0 +1,30 @@
+# 1단계: Rust를 사용하여 WASM 빌드
+FROM rust:latest AS wasm-builder
+
+RUN rustup target add wasm32-unknown-unknown \
+    && cargo install wasm-pack
+
+WORKDIR /app
+COPY . .
+
+# WASM 빌드 (pkg 디렉토리 생성)
+RUN wasm-pack build --target web
+
+# 2단계: Node.js를 사용하여 Vite 서버 실행
+FROM node:20-slim
+
+WORKDIR /app
+
+# WASM 빌드 결과물(pkg) 및 프로젝트 파일 복사
+COPY --from=wasm-builder /app/pkg /app/pkg
+COPY --from=wasm-builder /app/hwpkit-extension /app/hwpkit-extension
+COPY --from=wasm-builder /app/rhwp-studio /app/rhwp-studio
+
+WORKDIR /app/rhwp-studio
+
+# 의존성 설치
+RUN npm install
+
+# Vite 개발 서버 실행
+EXPOSE 7700
+CMD ["npx", "vite", "--port", "7700", "--host", "0.0.0.0"]
