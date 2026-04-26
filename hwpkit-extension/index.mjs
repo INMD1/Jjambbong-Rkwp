@@ -5016,8 +5016,15 @@ function buildGridXml(grid, ctx) {
     }
     rowsXml += `<hp:tr>${cellsXml}</hp:tr>`;
   }
+  const alignMap = {
+    left: "LEFT",
+    right: "RIGHT",
+    center: "CENTER",
+    justify: "JUSTIFY"
+  };
+  const horzAlign = alignMap[grid.props.align ?? "left"] ?? "LEFT";
   const headerRow = grid.props.headerRow ? ' repeatHeader="1"' : "";
-  const xml = `<hp:tbl id="${ctx.nextElementId++}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="NONE"${headerRow} rowCnt="${rowCount}" colCnt="${colCount}" cellSpacing="0" borderFillIDRef="${tblBfId}" noAdjust="0"><hp:sz width="${actualTotal}" widthRelTo="ABSOLUTE" height="${totalH}" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="138" right="138" top="138" bottom="138"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>` + rowsXml + `</hp:tbl>`;
+  const xml = `<hp:tbl id="${ctx.nextElementId++}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="NONE"${headerRow} rowCnt="${rowCount}" colCnt="${colCount}" cellSpacing="0" borderFillIDRef="${tblBfId}" noAdjust="0"><hp:sz width="${actualTotal}" widthRelTo="ABSOLUTE" height="${totalH}" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="0" horzOffset="0"/><hp:outMargin left="138" right="138" top="138" bottom="138"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>` + rowsXml + `</hp:tbl>`;
   return { xml, height: totalH };
 }
 function estimateCellHeight(cell, ctx) {
@@ -5358,16 +5365,14 @@ function encodeParaInner(para, ctx) {
     spacingXml = `<w:spacing ${parts.join(" ")}/>`;
   }
   let indentXml = "";
-  const leftDxa = para.props.indentPt !== void 0 ? Math.max(0, Metric.ptToDxa(para.props.indentPt)) : 0;
-  const firstPt = para.props.firstLineIndentPt;
-  if (leftDxa > 0 || firstPt !== void 0) {
+  const indentPt = para.props.indentPt ?? 0;
+  const leftDxa = Math.round(Math.max(0, Metric.ptToDxa(indentPt)));
+  const firstPt = para.props.firstLineIndentPt ?? 0;
+  const firstLineDxa = Math.round(Math.max(0, Metric.ptToDxa(firstPt)));
+  if (leftDxa > 0 || firstLineDxa > 0) {
     const parts = [];
     if (leftDxa > 0) parts.push(`w:left="${leftDxa}"`);
-    if (firstPt !== void 0) {
-      const dxa = Metric.ptToDxa(Math.max(0, Math.abs(firstPt)));
-      if (firstPt >= 0) parts.push(`w:firstLine="${dxa}"`);
-      else parts.push(`w:hanging="${dxa}"`);
-    }
+    if (firstLineDxa > 0) parts.push(`w:firstLine="${firstLineDxa}"`);
     if (parts.length > 0) indentXml = `<w:ind ${parts.join(" ")}/>`;
   }
   const runs = para.kids.map((k) => {
@@ -6486,7 +6491,7 @@ function calcLineHeight(type, value, textHeight) {
 function mkLineSeg(textStartPos, vertPos, vertSize, textHeight, baseline, spacing, horzPos, horzSize, flags) {
   return new BufWriter().u32(textStartPos).i32(vertPos).i32(vertSize).i32(textHeight).i32(baseline).i32(spacing).i32(horzPos).i32(horzSize).u32(flags).build();
 }
-function buildDefaultLineSeg(availWidthHwp, fontHwp, nchars, paraProps) {
+function buildDefaultLineSeg(availWidthHwp, fontHwp, nchars, paraProps, vertPos = 0) {
   const ratio = paraProps?.lineHeight ? Math.round(paraProps.lineHeight * 100) : 160;
   const vertSize = calcLineHeight(0, ratio, fontHwp);
   const baseline = Math.round(fontHwp * 0.85);
@@ -6494,7 +6499,7 @@ function buildDefaultLineSeg(availWidthHwp, fontHwp, nchars, paraProps) {
   const flags = 3;
   return mkLineSeg(
     0,
-    0,
+    vertPos,
     vertSize,
     fontHwp,
     baseline,
@@ -6566,7 +6571,7 @@ function encodePicPara(imgNode, binDataId, bank, lv, idGen, availWidthHwp) {
     mkRec(TAG_SHAPE_COMPONENT_PICTURE, lv + 2, mkShapeComponentPicture(binDataId, wHwp, hHwp))
   ];
 }
-function encodePara3(para, bank, lv, instanceId, availWidthHwp, mask = 0) {
+function encodePara3(para, bank, lv, instanceId, availWidthHwp, mask = 0, vertPos = 0) {
   let text = "";
   const csPairs = [];
   let pos = 0;
@@ -6616,12 +6621,13 @@ function encodePara3(para, bank, lv, instanceId, availWidthHwp, mask = 0) {
     mkRec(TAG_PARA_HEADER2, lv, mkParaHeader(nchars, mask, psId, csPairs.length, 1, instanceId)),
     mkRec(TAG_PARA_TEXT2, lv + 1, mkParaText(text)),
     mkRec(TAG_PARA_CHAR_SHAPE2, lv + 1, mkParaCharShape(csPairs)),
-    mkRec(TAG_PARA_LINE_SEG, lv + 1, buildDefaultLineSeg(availWidthHwp, fontHwp, nchars, para.props)),
+    mkRec(TAG_PARA_LINE_SEG, lv + 1, buildDefaultLineSeg(availWidthHwp, fontHwp, nchars, para.props, vertPos)),
     ...ctrlRecords
   ];
 }
-function mkTableCtrl(wHwp, hHwp, instanceId) {
-  return new BufWriter().u32(CTRL_TABLE2).u32(136978961).i32(0).i32(0).u32(wHwp).u32(hHwp).i32(7).u16(140).u16(140).u16(140).u16(140).u32(instanceId).i32(0).u16(0).build();
+function mkTableCtrl(wHwp, hHwp, instanceId, align = "left") {
+  const alignFlags = { left: 0, center: 1, right: 2, justify: 3 }[align] ?? 0;
+  return new BufWriter().u32(CTRL_TABLE2).u32(136978961).i32(0).i32(0).u32(wHwp).u32(hHwp).i32(7).u16(140).u16(140).u16(140).u16(140).u32(instanceId).i32(alignFlags).u16(0).build();
 }
 function mkTableRecord(rowCnt, colCnt, rowHwp, bfId) {
   const w = new BufWriter();
@@ -6648,7 +6654,8 @@ function encodeGrid4(grid, bank, lv, idGen, availWidthHwp) {
   const tblWPt = cwPt.length > 0 ? cwPt.reduce((s, w) => s + w, 0) : totalPt;
   const tblHPt = grid.kids.reduce((s, row) => s + (row.heightPt != null && row.heightPt > 0 ? row.heightPt : DEFAULT_ROW_HEIGHT_PT), 0);
   const tblInstanceId = idGen();
-  records.push(mkRec(TAG_CTRL_HEADER2, lv, mkTableCtrl(Metric.ptToHwp(tblWPt), Metric.ptToHwp(tblHPt), tblInstanceId)));
+  const tblAlign = grid.props.align ?? "left";
+  records.push(mkRec(TAG_CTRL_HEADER2, lv, mkTableCtrl(Metric.ptToHwp(tblWPt), Metric.ptToHwp(tblHPt), tblInstanceId, tblAlign)));
   records.push(mkRec(TAG_TABLE, lv + 1, mkTableRecord(rowCnt, colCnt, rowHwp, defBfId)));
   for (let r = 0; r < grid.kids.length; r++) {
     for (let c = 0; c < grid.kids[r].kids.length; c++) {
@@ -6727,6 +6734,7 @@ function buildBodyTextStream(doc, bank, images) {
   );
   for (const r of buildSectionParagraph(dims, idGen())) chunks.push(r);
   const TABLE_CTRL_MASK = 1 << 11;
+  let vertPos = 0;
   for (const sheet of doc.kids) {
     for (const node of sheet.kids) {
       if (node.tag === "para") {
@@ -6749,7 +6757,8 @@ function buildBodyTextStream(doc, bank, images) {
           chunks.push(mkRec(TAG_PARA_HEADER2, 0, mkParaHeader(9, TABLE_CTRL_MASK | paraMask, 0, 1, 1, idGen())));
           chunks.push(mkRec(TAG_PARA_TEXT2, 1, mkTableParaText()));
           chunks.push(mkRec(TAG_PARA_CHAR_SHAPE2, 1, mkParaCharShape([[0, 0]])));
-          chunks.push(mkRec(TAG_PARA_LINE_SEG, 1, buildDefaultLineSeg(availWidthHwp, 1e3, 9)));
+          chunks.push(mkRec(TAG_PARA_LINE_SEG, 1, buildDefaultLineSeg(availWidthHwp, 1e3, 9, void 0, vertPos)));
+          vertPos += Metric.ptToHwp(20);
           for (const r of encodeGrid4(gridNode, bank, 1, idGen, availWidthHwp)) chunks.push(r);
           continue;
         }
@@ -6761,25 +6770,33 @@ function buildBodyTextStream(doc, bank, images) {
               for (const r of encodePicPara(img, binImg.id, bank, 0, idGen, availWidthHwp)) {
                 chunks.push(r);
               }
+              vertPos += Metric.ptToHwp(img.h ?? 100);
             }
           }
           const textKids = para.kids.filter((k) => k.tag !== "img" && k.tag !== "link");
           if (textKids.length > 0) {
             const textPara = { tag: "para", props: para.props, kids: textKids };
-            for (const r of encodePara3(textPara, bank, 0, idGen(), availWidthHwp)) {
+            for (const r of encodePara3(textPara, bank, 0, idGen(), availWidthHwp, paraMask, vertPos)) {
               if (r[0] === (TAG_PARA_HEADER2 & 255)) {
               }
               chunks.push(r);
             }
+            const fontHwp_img = textKids.find((k) => k.tag === "span" && k.props?.pt)?.props.pt ? Metric.ptToHwp(textKids.find((k) => k.tag === "span" && k.props?.pt).props.pt) : 1e3;
+            const lineHeight_img = para.props.lineHeight ?? 1.6;
+            vertPos += Metric.ptToHwp(fontHwp_img / 1200 * 72 * lineHeight_img);
           }
         } else {
-          for (const r of encodePara3(para, bank, 0, idGen(), availWidthHwp, paraMask)) chunks.push(r);
+          for (const r of encodePara3(para, bank, 0, idGen(), availWidthHwp, paraMask, vertPos)) chunks.push(r);
+          const fontHwp_para = para.kids.find((k) => k.tag === "span" && k.props?.pt)?.props.pt ? Metric.ptToHwp(para.kids.find((k) => k.tag === "span" && k.props?.pt).props.pt) : 1e3;
+          const lineHeight_para = para.props.lineHeight ?? 1.6;
+          vertPos += Metric.ptToHwp(fontHwp_para / 1200 * 72 * lineHeight_para);
         }
       } else if (node.tag === "grid") {
         chunks.push(mkRec(TAG_PARA_HEADER2, 0, mkParaHeader(9, TABLE_CTRL_MASK, 0, 1, 1, idGen())));
         chunks.push(mkRec(TAG_PARA_TEXT2, 1, mkTableParaText()));
         chunks.push(mkRec(TAG_PARA_CHAR_SHAPE2, 1, mkParaCharShape([[0, 0]])));
-        chunks.push(mkRec(TAG_PARA_LINE_SEG, 1, buildDefaultLineSeg(availWidthHwp, 1e3, 9)));
+        chunks.push(mkRec(TAG_PARA_LINE_SEG, 1, buildDefaultLineSeg(availWidthHwp, 1e3, 9, void 0, vertPos)));
+        vertPos += Metric.ptToHwp(20);
         for (const r of encodeGrid4(node, bank, 1, idGen, availWidthHwp)) chunks.push(r);
       }
     }

@@ -83,6 +83,7 @@ interface GridProps {
     defaultStroke?: Stroke;
     look?: TableLook;
     headerRow?: boolean;
+    align?: Align;
 }
 interface PageDims {
     wPt: number;
