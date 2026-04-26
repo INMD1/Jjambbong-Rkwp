@@ -41,6 +41,7 @@ interface ParaProps {
     indentPt?: number;
     indentRightPt?: number;
     firstLineIndentPt?: number;
+    leftMargin?: number;
     spaceBefore?: number;
     spaceAfter?: number;
     lineHeight?: number;
@@ -210,11 +211,13 @@ declare function fail(error: string, warns?: string[]): Fail;
 
 interface Decoder {
     readonly format: string;
+    readonly aliases?: string[];
     decode(data: Uint8Array): Promise<Outcome<DocRoot>>;
 }
 
 interface Encoder {
     readonly format: string;
+    readonly aliases?: string[];
     encode(doc: DocRoot): Promise<Outcome<Uint8Array>>;
 }
 

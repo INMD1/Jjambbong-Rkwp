@@ -476,6 +476,24 @@ async function loadBytes(
 ): Promise<void> {
   const docInfo = wasm.loadDocument(data, fileName);
   wasm.currentFileHandle = fileHandle;
+
+  // 포맷 검증: 파일명 vs 실제 포맷 불일치 경고
+  const actualFormat = wasm.getSourceFormat();
+  const nameLower = fileName.toLowerCase();
+  if (nameLower.endsWith('.hwpx') && actualFormat === 'hwp') {
+    console.warn(`[포맷 불일치] "${fileName}"은/는 .hwpx 확장자이지만 실제 포맷은 HWP 입니다.`);
+    showToast({
+      message: `파일명이 .hwpx 인데 실제 포맷은 HWP 입니다.\nHWP 로 처리됩니다.`,
+      durationMs: 3000,
+    });
+  } else if (nameLower.endsWith('.hwp') && actualFormat === 'hwpx') {
+    console.warn(`[포맷 불일치] "${fileName}"은/는 .hwp 확장자이지만 실제 포맷은 HWPX 입니다.`);
+    showToast({
+      message: `파일명이 .hwp 인데 실제 포맷은 HWPX 입니다.\nHWPX 로 처리됩니다.`,
+      durationMs: 3000,
+    });
+  }
+
   const elapsed = performance.now() - startTime;
   // initializeDocument 안에서 #177 validation 모달이 표시될 수 있음.
   // HWPX 토스트는 모달과의 이벤트 충돌을 피하기 위해 모달 닫힌 후 표시.

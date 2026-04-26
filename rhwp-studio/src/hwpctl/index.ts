@@ -51,6 +51,16 @@ export class HwpCtrl {
     try {
       const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
       this.wasmDoc = new (this.wasmDoc.constructor)(bytes);
+
+      // 포맷 검증: .hwpx 파일이 실제로 HWPX 포맷인지 확인
+      const sourceFormat = this.wasmDoc.getSourceFormat();
+      if (sourceFormat !== 'hwp' && sourceFormat !== 'hwpx') {
+        console.error(`[hwpctl] Open 실패: 지원하지 않는 포맷입니다 (detected: "${sourceFormat}")`);
+        callback?.(false);
+        return false;
+      }
+
+      console.log(`[hwpctl] Open 성공: ${sourceFormat.toUpperCase()} 포맷 (${bytes.length} bytes)`);
       callback?.(true);
       return true;
     } catch (e) {

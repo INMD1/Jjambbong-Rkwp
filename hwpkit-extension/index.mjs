@@ -14,9 +14,15 @@ var FormatRegistry = class {
   }
   registerDecoder(d) {
     this.decoders.set(d.format, d);
+    if (d.aliases) {
+      for (const alias of d.aliases) this.decoders.set(alias, d);
+    }
   }
   registerEncoder(e) {
     this.encoders.set(e.format, e);
+    if (e.aliases) {
+      for (const alias of e.aliases) this.encoders.set(alias, e);
+    }
   }
   getDecoder(fmt) {
     return this.decoders.get(fmt);
@@ -279,14 +285,37 @@ function safeStrokeDocx(val, sz, c) {
   };
 }
 var FONT_MAP = {
+  // 맑은 고딕 계열
   "\uB9D1\uC740 \uACE0\uB515": "Malgun Gothic",
+  "\uB9D1\uC740\uACE0\uB515": "Malgun Gothic",
+  // 바탕 계열 (serif)
   "\uBC14\uD0D5": "Batang",
-  "\uB3CB\uC6C0": "Dotum",
-  "\uAD74\uB9BC": "Gulim",
+  "\uBC14\uD0D5\uCCB4": "BatangChe",
   "\uD55C\uCEF4\uBC14\uD0D5": "Batang",
-  "\uD55C\uCEF4\uB3CB\uC6C0": "Malgun Gothic",
   "\uD568\uCD08\uB86C\uBC14\uD0D5": "Batang",
-  "\uD568\uCD08\uB86C\uB3CB\uC6C0": "Malgun Gothic"
+  "HY\uC2E0\uBA85\uC870": "Batang",
+  "HY\uACAC\uBA85\uC870": "Batang",
+  "HY\uADF8\uB798\uD53D": "Batang",
+  "\uAD81\uC11C": "Gungsuh",
+  "\uAD81\uC11C\uCCB4": "GungsuhChe",
+  // 고딕 계열 (sans-serif)
+  "\uB3CB\uC6C0": "Dotum",
+  "\uB3CB\uC6C0\uCCB4": "DotumChe",
+  "\uAD74\uB9BC": "Gulim",
+  "\uAD74\uB9BC\uCCB4": "GulimChe",
+  "\uD55C\uCEF4\uB3CB\uC6C0": "Malgun Gothic",
+  "\uD568\uCD08\uB86C\uB3CB\uC6C0": "Malgun Gothic",
+  "HY\uACAC\uACE0\uB515": "Malgun Gothic",
+  "HY\uC911\uACE0\uB515": "Malgun Gothic",
+  "HY\uD5E4\uB4DC\uB77C\uC778M": "Malgun Gothic",
+  "HY\uAC15B": "Malgun Gothic",
+  "HY\uB098\uBB34M": "Malgun Gothic",
+  "HY\uBAA9\uAC01\uD30C\uC784B": "Malgun Gothic",
+  "HY\uC5FD\uC11CM": "Malgun Gothic",
+  "HY\uC5FD\uC11CL": "Malgun Gothic",
+  // 나눔 계열
+  "\uB098\uB214\uACE0\uB515": "Malgun Gothic",
+  "\uB098\uB214\uBA85\uC870": "Batang"
 };
 function safeFont(raw) {
   return FONT_MAP[raw ?? ""] ?? raw ?? "Malgun Gothic";
@@ -544,6 +573,11 @@ var TextKit = {
 var BaseDecoder = class {
   constructor() {
     this.format = this.getFormat();
+    this.aliases = this.getAliases();
+  }
+  /** 별칭 목록 반환 (하위 클래스에서 필요 시 오버라이드) */
+  getAliases() {
+    return [];
   }
   // ─── 공통 유틸리티 메서드 ──────────────────────────
   /** 바이트를 UTF-8 문자열로 변환 */
@@ -620,10 +654,33 @@ var BaseDecoder = class {
   }
 };
 
+// src/encoders/hwpx/constants.ts
+var HWPX_MIME_TYPE = "application/hwp+zip";
+var NAMESPACES = {
+  /** Hancom 문서 네임스페이스 */
+  HANCOM: "http://www.hancom.co.kr/hwp/xml",
+  /** Hancom 공통 네임스페이스 */
+  HANCOM_COMMON: "http://www.hancom.co.kr/hwp/xml/common",
+  /** Hancom 버전 네임스페이스 */
+  HANCOM_VERSION: "http://www.hancom.co.kr/hwp/xml/version",
+  /** Hancom 속성 네임스페이스 */
+  HANCOM_PROP: "http://www.hancom.co.kr/hwp/xml/property"
+};
+var NAMESPACE_DECLARATIONS = {
+  HEAD: `xmlns:hh="${NAMESPACES.HANCOM}" xmlns:hc="${NAMESPACES.HANCOM_COMMON}" xmlns:hv="${NAMESPACES.HANCOM_VERSION}" xmlns:hp="${NAMESPACES.HANCOM_PROP}"`,
+  SECTION: `xmlns:hs="${NAMESPACES.HANCOM}" xmlns:hp="${NAMESPACES.HANCOM_PROP}"`
+};
+var PT_PER_INCH = 72;
+var PIXELS_PER_INCH = 96;
+var PT_PER_PIXEL = PT_PER_INCH / PIXELS_PER_INCH;
+
 // src/decoders/hwpx/HwpxDecoder.ts
 var HwpxDecoder = class extends BaseDecoder {
   getFormat() {
     return "hwpx";
+  }
+  getAliases() {
+    return [HWPX_MIME_TYPE, "application/hwp+zip"];
   }
   async decode(data) {
     const shield = new ShieldedParser();
@@ -725,14 +782,16 @@ function extractDims(headObj) {
     if (!sec) return null;
     const pa = sec?.["hh:PAGEPROPERTY"]?.[0]?._attr ?? sec?.PAGEPROPERTY?.[0]?._attr;
     if (!pa) return null;
+    const ew = Number(pa.Width ?? 59528);
+    const eh = Number(pa.Height ?? 84188);
     return {
-      wPt: Metric.hwpToPt(Number(pa.Width ?? 59528)),
-      hPt: Metric.hwpToPt(Number(pa.Height ?? 84188)),
+      wPt: Metric.hwpToPt(ew),
+      hPt: Metric.hwpToPt(eh),
       mt: Metric.hwpToPt(Number(pa.TopMargin ?? 5670)),
       mb: Metric.hwpToPt(Number(pa.BottomMargin ?? 4252)),
       ml: Metric.hwpToPt(Number(pa.LeftMargin ?? 8504)),
       mr: Metric.hwpToPt(Number(pa.RightMargin ?? 8504)),
-      orient: Number(pa.Landscape) === 1 ? "landscape" : "portrait"
+      orient: ew > eh ? "landscape" : "portrait"
     };
   } catch {
     return null;
@@ -881,7 +940,7 @@ function extractParaPrs(headObj) {
         const lsAttr = lineSpEl._attr ?? {};
         const lsType = lsAttr.type ?? "PERCENT";
         const lsVal = Number(lsAttr.value ?? 160);
-        if (lsType === "PERCENT" && lsVal > 0) lineHeight = lsVal / 100;
+        if (lsType === "PERCENT" && lsVal > 0 && lsVal !== 160) lineHeight = lsVal / 100;
       }
       map.set(id, { align, indentPt, spaceBefore, spaceAfter, lineHeight });
     }
@@ -889,13 +948,37 @@ function extractParaPrs(headObj) {
   }
   return map;
 }
+function extractNestedTables(tbl, items) {
+  const rows = getTag(tbl, "hp:tr", "hp:ROW");
+  for (const row of rows) {
+    const cells = getTag(row, "hp:tc", "hp:CELL");
+    for (const cell of cells) {
+      const subList = cell?.["hp:subList"]?.[0] ?? cell?.subList?.[0];
+      const source = subList ?? cell;
+      const paras = getTag(source, "hp:p", "hp:P");
+      for (const p of paras) {
+        const runs = getTag(p, "hp:run", "hp:RUN");
+        for (const run of runs) {
+          const nestedTbls = getTag(run, "hp:tbl", "hp:TABLE");
+          for (const nestedTbl of nestedTbls) {
+            items.push({ type: "table", node: nestedTbl });
+            extractNestedTables(nestedTbl, items);
+          }
+        }
+      }
+    }
+  }
+}
 function addParaItems(p, items) {
   const runs = getTag(p, "hp:run", "hp:RUN");
   let hasTable = false;
   for (const run of runs) {
     const tbls = getTag(run, "hp:tbl", "hp:TABLE");
     if (tbls.length > 0) {
-      for (const tbl of tbls) items.push({ type: "table", node: tbl });
+      for (const tbl of tbls) {
+        items.push({ type: "table", node: tbl });
+        extractNestedTables(tbl, items);
+      }
       hasTable = true;
     }
   }
@@ -908,19 +991,23 @@ function decodeSection(sec, dims, ctx) {
   const pageDims = extractSecPrDims(firstParas[0]) ?? dims;
   const items = [];
   const paras = getTag(sec, "hp:p", "hp:P");
-  const directTbls = getTag(sec, "hp:tbl", "hp:TABLE");
-  for (const tbl of directTbls) items.push({ type: "table", node: tbl });
+  const tbls = getTag(sec, "hp:tbl", "hp:TABLE");
   const childOrder = sec?.["_childOrder"];
   if (Array.isArray(childOrder)) {
     let pi = 0;
+    let ti = 0;
     for (const tag of childOrder) {
       if ((tag === "hp:p" || tag === "hp:P") && pi < paras.length) {
         addParaItems(paras[pi++], items);
+      } else if ((tag === "hp:tbl" || tag === "hp:TABLE") && ti < tbls.length) {
+        items.push({ type: "table", node: tbls[ti++] });
       }
     }
     while (pi < paras.length) addParaItems(paras[pi++], items);
+    while (ti < tbls.length) items.push({ type: "table", node: tbls[ti++] });
   } else {
     for (const p of paras) addParaItems(p, items);
+    for (const t of tbls) items.push({ type: "table", node: t });
   }
   const kids = ctx.shield.guardAll(
     items,
@@ -957,14 +1044,16 @@ function parseSecPrDims(secPr) {
   const pagePr = secPr?.["hp:pagePr"]?.[0]?._attr ?? secPr?.["hp:PAGEPR"]?.[0]?._attr;
   if (!pagePr) return null;
   const margin = secPr?.["hp:pagePr"]?.[0]?.["hp:margin"]?.[0]?._attr ?? secPr?.["hp:PAGEPR"]?.[0]?.["hp:MARGIN"]?.[0]?._attr ?? {};
+  const pw = Number(pagePr.width ?? 59528);
+  const ph = Number(pagePr.height ?? 84188);
   return {
-    wPt: Metric.hwpToPt(Number(pagePr.width ?? 59528)),
-    hPt: Metric.hwpToPt(Number(pagePr.height ?? 84188)),
+    wPt: Metric.hwpToPt(pw),
+    hPt: Metric.hwpToPt(ph),
     mt: Metric.hwpToPt(Number(margin.top ?? 5670)),
     mb: Metric.hwpToPt(Number(margin.bottom ?? 4252)),
     ml: Metric.hwpToPt(Number(margin.left ?? 8504)),
     mr: Metric.hwpToPt(Number(margin.right ?? 8504)),
-    orient: pagePr.landscape === "NARROWLY" ? "landscape" : "portrait"
+    orient: pw > ph ? "landscape" : "portrait"
   };
 }
 function extractSecPrDims(p) {
@@ -1025,14 +1114,18 @@ function decodePara(p, ctx) {
   }
   const runs = getTag(p, "hp:run", "hp:RUN");
   const kids = [];
-  let picCount = 0;
+  const collectPics = (container) => {
+    const direct = getTag(container, "hp:pic", "hp:PIC");
+    const ctrls = getTag(container, "hp:ctrl", "hp:CTRL");
+    const nested = ctrls.flatMap((c) => getTag(c, "hp:pic", "hp:PIC"));
+    return [...direct, ...nested];
+  };
+  for (const pic of collectPics(p)) {
+    const img = decodePic(pic, ctx);
+    if (img) kids.push(img);
+  }
   for (const run of runs) {
-    const pics = getTag(run, "hp:pic", "hp:PIC");
-    if (pics.length > 0) {
-      console.log(`[HwpxDecoder:decodePara] Found ${pics.length} images in run`);
-      picCount += pics.length;
-    }
-    for (const pic of pics) {
+    for (const pic of collectPics(run)) {
       const img = decodePic(pic, ctx);
       if (img) kids.push(img);
     }
@@ -1041,21 +1134,21 @@ function decodePara(p, ctx) {
       const pn = pageNums[0]?._attr ?? {};
       const fmt = pn.formatType === "ROMAN_LOWER" ? "roman" : pn.formatType === "ROMAN_UPPER" ? "romanCaps" : "decimal";
       const pageNumNode = { tag: "pagenum", format: fmt };
-      const spanProps2 = resolveCharPr(run, ctx);
-      kids.push({ tag: "span", props: spanProps2, kids: [pageNumNode] });
+      const spanProps = resolveCharPr(run, ctx);
+      kids.push({ tag: "span", props: spanProps, kids: [pageNumNode] });
       continue;
     }
+    const runPics = collectPics(run);
     const textNodes = getTag(run, "hp:t", "hp:T", "hp:CHAR");
     const content = textNodes.map((t) => {
       const val = typeof t === "string" ? t : t?._text ?? t?._ ?? t?.["#text"] ?? "";
-      return val.replace(/__EXT_\d+__/g, "");
+      return val.replace(/__EXT_\d+(?:_W\d+_H\d+)?__/g, "");
     }).join("");
-    if (content === "" && (run?.["hp:secPr"]?.[0] || run?.["hp:SECPR"]?.[0]) && pics.length === 0 && pageNums.length === 0) continue;
-    const spanProps = resolveCharPr(run, ctx);
-    kids.push(buildSpan(content, spanProps));
-  }
-  if (picCount > 0) {
-    console.log(`[HwpxDecoder:decodePara] Total ${picCount} images decoded in paragraph`);
+    if (content === "" && (run?.["hp:secPr"]?.[0] || run?.["hp:SECPR"]?.[0]) && runPics.length === 0 && pageNums.length === 0) continue;
+    if (content !== "" || runPics.length === 0 && pageNums.length === 0) {
+      const spanProps = resolveCharPr(run, ctx);
+      kids.push(buildSpan(content, spanProps));
+    }
   }
   if (pAttr.pageBreak === "1") {
     kids.unshift({ tag: "span", props: {}, kids: [buildPb()] });
@@ -1194,6 +1287,42 @@ function decodeGrid(tbl, ctx) {
       break;
     }
   }
+  if (!gridProps.colWidths) {
+    let detectedCols = 0;
+    for (const row of rowArr) {
+      let ci = 0;
+      for (const cell of getTag(row, "hp:tc", "hp:CELL")) {
+        const csEl = cell?.["hp:cellSpan"]?.[0]?._attr ?? {};
+        ci += Number(csEl.colSpan ?? cell?._attr?.ColSpan ?? 1);
+      }
+      if (ci > detectedCols) detectedCols = ci;
+    }
+    if (detectedCols > 0) {
+      const sums = new Float64Array(detectedCols);
+      const counts = new Int32Array(detectedCols);
+      for (const row of rowArr) {
+        let ci = 0;
+        for (const cell of getTag(row, "hp:tc", "hp:CELL")) {
+          const csEl = cell?.["hp:cellSpan"]?.[0]?._attr ?? {};
+          const cs = Number(csEl.colSpan ?? cell?._attr?.ColSpan ?? 1);
+          const szAttr = cell?.["hp:cellSz"]?.[0]?._attr ?? {};
+          const w = Number(szAttr.width ?? 0);
+          if (w > 0 && cs > 0) {
+            const perCol = w / cs;
+            for (let k = 0; k < cs && ci + k < detectedCols; k++) {
+              sums[ci + k] += perCol;
+              counts[ci + k]++;
+            }
+          }
+          ci += cs;
+        }
+      }
+      const estimated = Array.from(sums).map(
+        (s, i) => counts[i] > 0 ? Metric.hwpToPt(s / counts[i]) : 0
+      );
+      if (estimated.some((w) => w > 0)) gridProps.colWidths = estimated;
+    }
+  }
   const rowNodes = rowArr.map((row) => {
     const cellArr = getTag(row, "hp:tc", "hp:CELL");
     const cellNodes = cellArr.map((cell) => {
@@ -1219,6 +1348,16 @@ function decodeGrid(tbl, ctx) {
         };
         cellProps.va = vaMap[subAttr.vertAlign];
       }
+      const HWPX_DEFAULT_MARGIN_LR = 360;
+      const HWPX_DEFAULT_MARGIN_TB = 141;
+      const mL = Number(subAttr.marginLeft ?? HWPX_DEFAULT_MARGIN_LR);
+      const mR = Number(subAttr.marginRight ?? HWPX_DEFAULT_MARGIN_LR);
+      const mT = Number(subAttr.marginTop ?? HWPX_DEFAULT_MARGIN_TB);
+      const mB = Number(subAttr.marginBottom ?? HWPX_DEFAULT_MARGIN_TB);
+      if (mL !== HWPX_DEFAULT_MARGIN_LR) cellProps.padL = Metric.hwpToPt(mL);
+      if (mR !== HWPX_DEFAULT_MARGIN_LR) cellProps.padR = Metric.hwpToPt(mR);
+      if (mT !== HWPX_DEFAULT_MARGIN_TB) cellProps.padT = Metric.hwpToPt(mT);
+      if (mB !== HWPX_DEFAULT_MARGIN_TB) cellProps.padB = Metric.hwpToPt(mB);
       const cellSpan = cell?.["hp:cellSpan"]?.[0]?._attr ?? {};
       const cs = Number(cellSpan.colSpan ?? ca.ColSpan ?? 1);
       const rs = Number(cellSpan.rowSpan ?? ca.RowSpan ?? 1);
@@ -1246,11 +1385,16 @@ function decodeGrid(tbl, ctx) {
       );
     });
     let rowHeightPt;
-    const firstCellForH = cellArr[0];
-    if (firstCellForH) {
-      const hSz = firstCellForH?.["hp:cellSz"]?.[0]?._attr ?? {};
+    for (const cell of cellArr) {
+      const ca = cell?._attr ?? {};
+      const cellSpan = cell?.["hp:cellSpan"]?.[0]?._attr ?? {};
+      const cellRs = Math.max(1, Number(cellSpan.rowSpan ?? ca.RowSpan ?? 1));
+      const hSz = cell?.["hp:cellSz"]?.[0]?._attr ?? {};
       const hVal = Number(hSz.height ?? 0);
-      if (hVal > 0) rowHeightPt = Metric.hwpToPt(hVal);
+      if (hVal > 0) {
+        rowHeightPt = Metric.hwpToPt(hVal) / cellRs;
+        if (cellRs === 1) break;
+      }
     }
     return buildRow(cellNodes, rowHeightPt);
   });
@@ -1277,7 +1421,7 @@ function cellText(cell) {
     (p) => getTag(p, "hp:run", "hp:RUN").map(
       (r) => getTag(r, "hp:t", "hp:T").map((t) => {
         const val = typeof t === "string" ? t : t?._text ?? t?._ ?? t?.["#text"] ?? "";
-        return val.replace(/__EXT_\d+__/g, "");
+        return val.replace(/__EXT_\d+(?:_W\d+_H\d+)?__/g, "");
       }).join("")
     ).join("")
   ).join(" ");
@@ -1458,6 +1602,9 @@ function isCellTag(t) {
   return t === TAG_CELL_A || t === TAG_CELL_B || t === TAG_LIST_HEADER;
 }
 var CTRL_TABLE = 1952607264;
+var CTRL_IMAGE = 1768777504;
+var CTRL_OBJ = 1868720672;
+var CTRL_FIG = 1718183712;
 function parseRecords(data) {
   const out = [];
   let off = 0;
@@ -1621,7 +1768,12 @@ function parseParagraphGroup(recs, start, di, shield) {
       if (r.data.length >= 4) {
         const ctrlId = BinaryKit.readU32LE(r.data, 0);
         const objId = r.data.length >= 6 ? BinaryKit.readU16LE(r.data, 4) : 0;
-        ctrlHeaders.push({ ctrlId, objId });
+        const MAX_HWP = 1e6;
+        const rawW = r.data.length >= 24 ? BinaryKit.readU32LE(r.data, 16) : 0;
+        const rawH = r.data.length >= 28 ? BinaryKit.readU32LE(r.data, 20) : 0;
+        const wPt = rawW > 0 && rawW < MAX_HWP ? Metric.hwpToPt(rawW) : 0;
+        const hPt = rawH > 0 && rawH < MAX_HWP ? Metric.hwpToPt(rawH) : 0;
+        ctrlHeaders.push({ ctrlId, objId, wPt, hPt });
         if (ctrlId === CTRL_TABLE) {
           const tr = shield.guard(
             () => parseTableCtrl(recs, i, di, shield),
@@ -1657,7 +1809,11 @@ function parseParagraphGroup(recs, start, di, shield) {
     }
     if (text.controls.length > 0) {
       for (let ci = 0; ci < text.controls.length; ci++) {
-        paraContent.push(buildSpan(`__EXT_${ci}__`));
+        const ch = ctrlHeaders[ci];
+        const isImg = ch && (ch.ctrlId === CTRL_IMAGE || ch.ctrlId === CTRL_FIG || ch.ctrlId === CTRL_OBJ);
+        const dimStr = isImg && ch.wPt > 0 && ch.hPt > 0 ? `_W${Math.round(ch.wPt)}_H${Math.round(ch.hPt)}` : "";
+        const objId = ch?.objId ?? ci;
+        paraContent.push(buildSpan(`__EXT_${objId}${dimStr}__`));
       }
     }
     if (paraContent.length > 0) {
@@ -1897,22 +2053,28 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
   const va = attr >> 6 & 3;
   if (va === 1) props.va = "mid";
   else if (va === 2) props.va = "bot";
+  const HWP_PAD_LR_DEFAULT = 360;
+  const HWP_PAD_TB_DEFAULT = 141;
   if (tag === TAG_LIST_HEADER && d.length >= 22) {
     col = BinaryKit.readU16LE(d, 8);
     row = BinaryKit.readU16LE(d, 10);
     cs = Math.max(1, BinaryKit.readU16LE(d, 12));
     rs = Math.max(1, BinaryKit.readU16LE(d, 14));
     widthHwp = BinaryKit.readU32LE(d, 16);
+    if (d.length >= 32) {
+      const pL = BinaryKit.readU16LE(d, 24);
+      const pR = BinaryKit.readU16LE(d, 26);
+      const pT = BinaryKit.readU16LE(d, 28);
+      const pB = BinaryKit.readU16LE(d, 30);
+      if (pL !== HWP_PAD_LR_DEFAULT) props.padL = Metric.hwpToPt(pL);
+      if (pR !== HWP_PAD_LR_DEFAULT) props.padR = Metric.hwpToPt(pR);
+      if (pT !== HWP_PAD_TB_DEFAULT) props.padT = Metric.hwpToPt(pT);
+      if (pB !== HWP_PAD_TB_DEFAULT) props.padB = Metric.hwpToPt(pB);
+    }
     const bfId = d.length >= 34 ? BinaryKit.readU16LE(d, 32) : 0;
     if (bfId > 0 && bfId <= di.borderFills.length) {
       const bf = di.borderFills[bfId - 1];
-      if (bf.borders.length >= 4) {
-        props.left = toStroke(bf.borders[0]);
-        props.right = toStroke(bf.borders[1]);
-        props.top = toStroke(bf.borders[2]);
-        props.bot = toStroke(bf.borders[3]);
-      }
-      if (bf.bgColor && bf.bgColor !== "FFFFFF") props.bg = bf.bgColor;
+      applyCellBorderFill(bf, props);
     }
   } else if (tag !== TAG_LIST_HEADER) {
     col = d.length >= 8 ? BinaryKit.readU16LE(d, 6) : seqIdx % (colCnt || 1);
@@ -1920,16 +2082,20 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
     cs = d.length >= 12 ? Math.max(1, BinaryKit.readU16LE(d, 10)) : 1;
     rs = d.length >= 14 ? Math.max(1, BinaryKit.readU16LE(d, 12)) : 1;
     widthHwp = d.length >= 18 ? BinaryKit.readU32LE(d, 14) : 0;
+    if (d.length >= 30) {
+      const pL = BinaryKit.readU16LE(d, 22);
+      const pR = BinaryKit.readU16LE(d, 24);
+      const pT = BinaryKit.readU16LE(d, 26);
+      const pB = BinaryKit.readU16LE(d, 28);
+      if (pL !== HWP_PAD_LR_DEFAULT) props.padL = Metric.hwpToPt(pL);
+      if (pR !== HWP_PAD_LR_DEFAULT) props.padR = Metric.hwpToPt(pR);
+      if (pT !== HWP_PAD_TB_DEFAULT) props.padT = Metric.hwpToPt(pT);
+      if (pB !== HWP_PAD_TB_DEFAULT) props.padB = Metric.hwpToPt(pB);
+    }
     const bfId = d.length >= 32 ? BinaryKit.readU16LE(d, 30) : 0;
     if (bfId > 0 && bfId <= di.borderFills.length) {
       const bf = di.borderFills[bfId - 1];
-      if (bf.borders.length >= 4) {
-        props.left = toStroke(bf.borders[0]);
-        props.right = toStroke(bf.borders[1]);
-        props.top = toStroke(bf.borders[2]);
-        props.bot = toStroke(bf.borders[3]);
-      }
-      if (bf.bgColor && bf.bgColor !== "FFFFFF") props.bg = bf.bgColor;
+      applyCellBorderFill(bf, props);
     }
   } else {
     row = Math.floor(seqIdx / (colCnt || 1));
@@ -1947,6 +2113,7 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
           const ps = di.paraShapes[psId];
           let txt = null;
           let csp = [];
+          const ctrlHeaders = [];
           let j = k + 1;
           while (j < cEnd && recs[j].level > lv) {
             if (recs[j].tag === TAG_PARA_TEXT) {
@@ -1955,9 +2122,43 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
             } else if (recs[j].tag === TAG_PARA_CHAR_SHAPE) {
               csp = parseCharShapePairs(recs[j].data);
               j++;
+            } else if (recs[j].tag === TAG_CTRL_HEADER && recs[j].level === lv + 1) {
+              if (recs[j].data.length >= 4) {
+                const ctrlId = BinaryKit.readU32LE(recs[j].data, 0);
+                const objId = recs[j].data.length >= 6 ? BinaryKit.readU16LE(recs[j].data, 4) : 0;
+                const MAX_HWP = 1e6;
+                const rawW = recs[j].data.length >= 24 ? BinaryKit.readU32LE(recs[j].data, 16) : 0;
+                const rawH = recs[j].data.length >= 28 ? BinaryKit.readU32LE(recs[j].data, 20) : 0;
+                const wPt = rawW > 0 && rawW < MAX_HWP ? Metric.hwpToPt(rawW) : 0;
+                const hPt = rawH > 0 && rawH < MAX_HWP ? Metric.hwpToPt(rawH) : 0;
+                ctrlHeaders.push({ ctrlId, objId, wPt, hPt });
+              }
+              j++;
             } else j++;
           }
-          const spans = txt && txt.chars.length > 0 ? resolveCharShapes(txt.chars, csp, di) : [buildSpan("")];
+          if (txt && ctrlHeaders.length > 0) {
+            for (let ci = 0; ci < txt.controls.length; ci++) {
+              if (ci < ctrlHeaders.length) {
+                txt.controls[ci].ctrlId = ctrlHeaders[ci].ctrlId;
+                txt.controls[ci].matched = true;
+              }
+            }
+          }
+          const paraContent = [];
+          if (txt && txt.chars.length > 0) {
+            const spans2 = resolveCharShapes(txt.chars, csp, di);
+            paraContent.push(...spans2);
+          }
+          if (txt && txt.controls.length > 0) {
+            for (let ci = 0; ci < txt.controls.length; ci++) {
+              const ch = ctrlHeaders[ci];
+              const isImg = ch && (ch.ctrlId === CTRL_IMAGE || ch.ctrlId === CTRL_FIG || ch.ctrlId === CTRL_OBJ);
+              const dimStr = isImg && ch.wPt > 0 && ch.hPt > 0 ? `_W${Math.round(ch.wPt)}_H${Math.round(ch.hPt)}` : "";
+              const objId = ch?.objId ?? ci;
+              paraContent.push(buildSpan(`__EXT_${objId}${dimStr}__`));
+            }
+          }
+          const spans = paraContent.length > 0 ? paraContent : [buildSpan("")];
           return { para: buildPara(spans, buildParaProps(ps)), next: j };
         },
         { para: buildPara([buildSpan("")]), next: k + 1 },
@@ -2001,6 +2202,15 @@ function colorRef(d, o) {
 function toStroke(b) {
   return { kind: BORDER_KIND[b.type] ?? "solid", pt: b.widthPt, color: b.color };
 }
+function applyCellBorderFill(bf, props) {
+  if (bf.borders.length >= 4) {
+    props.left = toStroke(bf.borders[0]);
+    props.right = toStroke(bf.borders[1]);
+    props.top = toStroke(bf.borders[2]);
+    props.bot = toStroke(bf.borders[3]);
+  }
+  if (bf.bgColor && bf.bgColor !== "FFFFFF") props.bg = bf.bgColor;
+}
 function strokeFromBF(bfId, di) {
   if (bfId <= 0 || bfId > di.borderFills.length) return void 0;
   const bf = di.borderFills[bfId - 1];
@@ -2015,13 +2225,15 @@ function buildParaProps(ps) {
   if (ps.spaceBefore > 0) p.spaceBefore = Metric.hwpToPt(ps.spaceBefore);
   if (ps.spaceAfter > 0) p.spaceAfter = Metric.hwpToPt(ps.spaceAfter);
   if (ps.lineSpacing > 0 && ps.lineSpacing !== 160) p.lineHeight = ps.lineSpacing / 100;
-  if (ps.leftMargin > 0) p.indentPt = Metric.hwpToPt(ps.leftMargin);
+  const leftMarginPt = Math.max(0, Metric.hwpToPt(ps.leftMargin));
+  if (leftMarginPt > 0) p.leftMargin = leftMarginPt;
   if (ps.indent !== 0) p.firstLineIndentPt = Metric.hwpToPt(ps.indent);
   return p;
 }
 var HwpScanner = class {
   constructor() {
     this.format = "hwp";
+    this.aliases = ["application/vnd.hancom.hwp"];
   }
   async decode(data) {
     const shield = new ShieldedParser();
@@ -2045,9 +2257,8 @@ var HwpScanner = class {
         }
       }
       const objectMap = /* @__PURE__ */ new Map();
-      const seenHashes = /* @__PURE__ */ new Set();
-      let imgIdx = 0;
-      for (const { path, data: data2 } of imageStreams) {
+      for (let objId = 0; objId < imageStreams.length; objId++) {
+        const { path, data: data2 } = imageStreams[objId];
         let mimeType = "image/jpeg";
         const lowerPath = path.toLowerCase();
         if (lowerPath.includes(".png")) mimeType = "image/png";
@@ -2057,24 +2268,17 @@ var HwpScanner = class {
         else if (data2[0] === 71 && data2[1] === 73 && data2[2] === 70 && data2[3] === 13624) mimeType = "image/gif";
         else if (data2[0] === 66 && data2[1] === 77) mimeType = "image/bmp";
         const base64 = TextKit.base64Encode(data2);
-        const hash = base64.slice(0, 20);
-        if (!seenHashes.has(hash)) {
-          seenHashes.add(hash);
-          objectMap.set(imgIdx++, buildImg(
-            base64,
-            mimeType,
-            0,
-            // w
-            0,
-            // h
-            `Image from ${path}`
-          ));
-          console.log(`[HwpScanner] Added unique image: ${hash}... (${data2.length} bytes)`);
-        } else {
-          console.log(`[HwpScanner] Duplicate image skipped: ${hash}...`);
-        }
+        const { wPt, hPt } = getImageDimsPt(data2, mimeType);
+        objectMap.set(objId, buildImg(
+          base64,
+          mimeType,
+          wPt,
+          hPt,
+          `Image from ${path}`
+        ));
+        console.log(`[HwpScanner] Added image with objId ${objId}: ${base64.slice(0, 20)}... (${data2.length} bytes)`);
       }
-      console.log(`[HwpScanner] Found ${imageStreams.length} image streams, ${objectMap.size} unique images`);
+      console.log(`[HwpScanner] Found ${imageStreams.length} image streams, ${objectMap.size} images`);
       const allContent = [];
       let pageDims = A4;
       for (let s = 0; s < 100; s++) {
@@ -2132,30 +2336,101 @@ function findBodySection(streams) {
     if (k.includes("Section") && !k.includes("Header") && !k.includes("Info")) return v;
   return void 0;
 }
+function getImageDimsPt(data, mime) {
+  const fallback = { wPt: 72, hPt: 72 };
+  try {
+    if (mime === "image/png" && data.length >= 24) {
+      const w = (data[16] << 24 | data[17] << 16 | data[18] << 8 | data[19]) >>> 0;
+      const h = (data[20] << 24 | data[21] << 16 | data[22] << 8 | data[23]) >>> 0;
+      if (w > 0 && h > 0) return { wPt: w * 0.75, hPt: h * 0.75 };
+    }
+    if (mime === "image/jpeg") {
+      let i = 2;
+      while (i + 8 < data.length) {
+        if (data[i] !== 255) {
+          i++;
+          continue;
+        }
+        const marker = data[i + 1];
+        if (marker >= 192 && marker <= 195) {
+          const h = (data[i + 5] << 8 | data[i + 6]) >>> 0;
+          const w = (data[i + 7] << 8 | data[i + 8]) >>> 0;
+          if (w > 0 && h > 0) return { wPt: w * 0.75, hPt: h * 0.75 };
+        }
+        const segLen = data[i + 2] << 8 | data[i + 3];
+        i += 2 + (segLen > 0 ? segLen : 2);
+      }
+    }
+    if (mime === "image/bmp" && data.length >= 26) {
+      const w = BinaryKit.readU32LE(data, 18);
+      const h = Math.abs(BinaryKit.readU32LE(data, 22) | 0);
+      if (w > 0 && h > 0) return { wPt: w * 0.75, hPt: h * 0.75 };
+    }
+    if (mime === "image/gif" && data.length >= 10) {
+      const w = data[6] | data[7] << 8;
+      const h = data[8] | data[9] << 8;
+      if (w > 0 && h > 0) return { wPt: w * 0.75, hPt: h * 0.75 };
+    }
+  } catch {
+  }
+  return fallback;
+}
 function injectImagesIntoContent(content, objectMap) {
-  const imageArray = Array.from(objectMap.values());
-  if (imageArray.length === 0) return;
-  const uniqueImages = Array.from(new Set(imageArray.map((img) => img.b64))).map((b64) => {
-    return imageArray.find((img) => img.b64 === b64);
-  });
-  if (uniqueImages.length === 0) return;
-  let imgIdx = 0;
-  for (const node of content) {
-    if (node.tag === "para" && node.kids) {
-      for (let i = 0; i < node.kids.length; i++) {
-        const kid = node.kids[i];
-        if (kid.tag === "span" && kid.kids && kid.kids[0]?.tag === "txt") {
-          const text = kid.kids[0].content;
-          const match = text.match?.(/^__(?:IMG|EXT)_(\d+)__$/);
-          if (match) {
-            const imgNode = uniqueImages[imgIdx % uniqueImages.length];
-            if (imgNode) {
-              node.kids[i] = imgNode;
-              imgIdx++;
+  if (objectMap.size === 0) return;
+  const processKids = (kids) => {
+    for (let i = 0; i < kids.length; i++) {
+      const kid = kids[i];
+      if (kid.tag === "span" && kid.kids && kid.kids[0]?.tag === "txt") {
+        const text = kid.kids[0].content;
+        const match = text.match?.(/^__(?:IMG|EXT)_(\d+)(?:_W(\d+)_H(\d+))?__$/);
+        if (match) {
+          const objId = parseInt(match[1], 10);
+          const base = objectMap.get(objId);
+          if (base) {
+            const wPt = match[2] ? parseInt(match[2], 10) : 0;
+            const hPt = match[3] ? parseInt(match[3], 10) : 0;
+            kids[i] = wPt > 0 && hPt > 0 ? { ...base, w: wPt, h: hPt } : base;
+          }
+        }
+      }
+    }
+  };
+  const processGridKids = (grid) => {
+    if (!grid.kids || !Array.isArray(grid.kids)) return;
+    for (const row of grid.kids) {
+      if (!row.kids || !Array.isArray(row.kids)) continue;
+      for (const cell of row.kids) {
+        if (!cell.kids || !Array.isArray(cell.kids)) continue;
+        for (const para of cell.kids) {
+          if (para.kids && Array.isArray(para.kids)) {
+            processKids(para.kids);
+            for (let i = 0; i < para.kids.length; i++) {
+              if (para.kids[i].tag === "img") {
+                const img = para.kids[i];
+                img.layout = {
+                  wrap: "square",
+                  horzRelTo: "column",
+                  horzAlign: "left",
+                  vertRelTo: "para",
+                  vertAlign: "top"
+                };
+              }
             }
           }
         }
       }
+    }
+  };
+  for (const node of content) {
+    if (node.tag === "para" && node.kids) {
+      processKids(node.kids);
+      for (const kid of node.kids) {
+        if (kid.tag === "grid") {
+          processGridKids(kid);
+        }
+      }
+    } else if (node.tag === "grid") {
+      processGridKids(node);
     }
   }
 }
@@ -2209,9 +2484,10 @@ var DocxDecoder = class extends BaseDecoder {
         } catch {
         }
       }
-      const docStr = TextKit.decode(docXml).trim();
+      let docStr = TextKit.decode(docXml).trim();
       if (!docStr) {
-        return fail("DOCX decode error: word/document.xml is empty");
+        warns.push("DOCX: word/document.xml is empty, using fallback empty document");
+        docStr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>';
       }
       const docObj = await XmlKit.parseStrict(docStr);
       const body = getBody(docObj);
@@ -3703,6 +3979,11 @@ registry.registerDecoder(new HtmlDecoder());
 var BaseEncoder = class {
   constructor() {
     this.format = this.getFormat();
+    this.aliases = this.getAliases();
+  }
+  /** 별칭 목록 반환 (하위 클래스에서 필요 시 오버라이드) */
+  getAliases() {
+    return [];
   }
   // ─── 공통 유틸리티 메서드 ───────────────────────────
   /** 문서 내 모든 이미지 노드 수집 */
@@ -3807,11 +4088,13 @@ var NS = [
   'xmlns:hm="http://www.hancom.co.kr/hwpml/2011/master-page"',
   'xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf"',
   'xmlns:dc="http://purl.org/dc/elements/1.1/"',
-  'xmlns:opf="http://www.idpf.org/2007/opf/"',
+  'xmlns:opf="http://www.idpf.org/2007/opf"',
   'xmlns:ooxmlchart="http://www.hancom.co.kr/hwpml/2016/ooxmlchart"',
   'xmlns:epub="http://www.idpf.org/2007/ops"',
   'xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0"'
 ].join(" ");
+var LINESEG_FLAGS_FIRST = 1441792;
+var LINESEG_FLAGS_OTHER = 393216;
 var LANG_GROUPS = [
   "HANGUL",
   "LATIN",
@@ -4018,11 +4301,11 @@ function registerParaPr(props, ctx) {
   const def = {
     id,
     align: (props.align ?? "left").toUpperCase(),
-    leftHwp: props.indentPt ? Metric.ptToHwp(props.indentPt) : 0,
-    rightHwp: props.indentRightPt ? Metric.ptToHwp(props.indentRightPt) : 0,
-    intentHwp: props.firstLineIndentPt ? Metric.ptToHwp(props.firstLineIndentPt) : 0,
-    prevHwp: props.spaceBefore ? Metric.ptToHwp(props.spaceBefore) : 0,
-    nextHwp: props.spaceAfter ? Metric.ptToHwp(props.spaceAfter) : 0,
+    leftHwp: Metric.ptToHwp(props.indentPt ?? 0),
+    rightHwp: Metric.ptToHwp(props.indentRightPt ?? 0),
+    intentHwp: Metric.ptToHwp(props.firstLineIndentPt ?? 0),
+    prevHwp: Metric.ptToHwp(props.spaceBefore ?? 0),
+    nextHwp: Metric.ptToHwp(props.spaceAfter ?? 0),
     lineSpacing: props.lineHeight ? Math.round(props.lineHeight * 100) : 160
   };
   if (props.listOrd !== void 0) {
@@ -4118,6 +4401,9 @@ var HwpxEncoder = class extends BaseEncoder {
   getFormat() {
     return "hwpx";
   }
+  getAliases() {
+    return [HWPX_MIME_TYPE, "application/hwp+zip"];
+  }
   async encode(doc) {
     try {
       const sheet = doc.kids[0];
@@ -4164,7 +4450,8 @@ var HwpxEncoder = class extends BaseEncoder {
       const entries = [
         {
           name: "mimetype",
-          data: new TextEncoder().encode("application/hwp+zip"),
+          data: new TextEncoder().encode(HWPX_MIME_TYPE),
+          compression: "STORE",
           mime: ""
         },
         {
@@ -4206,11 +4493,6 @@ var HwpxEncoder = class extends BaseEncoder {
           name: "settings.xml",
           data: this.stringToBytes(buildSettingsXml()),
           mime: "application/xml"
-        },
-        {
-          name: "META-INF/manifest.xml",
-          data: this.stringToBytes(MANIFEST_XML),
-          mime: "text/xml"
         }
       ];
       for (const bin of ctx.bins) {
@@ -4224,10 +4506,9 @@ var HwpxEncoder = class extends BaseEncoder {
     }
   }
 };
-var VERSION_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" targetApplication="WORDPROCESSING" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.2" application="Hancom Office Hangul" appVersion="11, 0, 0, 0"/>`;
+var VERSION_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hv:HCFVersion xmlns:hv="http://www.owpml.org/owpml/2024/version" targetApplication="WORDPROCESSING" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.4" application="Hancom Office Hangul" appVersion="11, 0, 0, 0"/>`;
 var CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf"><ocf:rootfiles><ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/><ocf:rootfile full-path="Preview/PrvText.txt" media-type="text/plain"/><ocf:rootfile full-path="META-INF/container.rdf" media-type="application/rdf+xml"/></ocf:rootfiles></ocf:container>`;
 var CONTAINER_RDF = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""><ns0:hasPart xmlns:ns0="http://www.hancom.co.kr/hwpml/2016/meta/pkg#" rdf:resource="Contents/header.xml"/></rdf:Description><rdf:Description rdf:about="Contents/header.xml"><rdf:type rdf:resource="http://www.hancom.co.kr/hwpml/2016/meta/pkg#HeaderFile"/></rdf:Description><rdf:Description rdf:about=""><ns0:hasPart xmlns:ns0="http://www.hancom.co.kr/hwpml/2016/meta/pkg#" rdf:resource="Contents/section0.xml"/></rdf:Description><rdf:Description rdf:about="Contents/section0.xml"><rdf:type rdf:resource="http://www.hancom.co.kr/hwpml/2016/meta/pkg#SectionFile"/></rdf:Description><rdf:Description rdf:about=""><rdf:type rdf:resource="http://www.hancom.co.kr/hwpml/2016/meta/pkg#Document"/></rdf:Description></rdf:RDF>`;
-var MANIFEST_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><odf:manifest xmlns:odf="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"/>`;
 function buildContentHpf(ctx, meta) {
   const title = esc(meta?.title ?? "");
   const creator = esc(meta?.author ?? "text");
@@ -4341,7 +4622,7 @@ function buildHeaderFooterRunXml(sheet, dims, ctx) {
     ctx.nextElementId = savedId;
     inner += `<hp:ctrl><hp:footer id="2" applyPageType="${applyPageType}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="BOTTOM" linkListIDRef="0" linkListNextIDRef="0" textWidth="${availW}" textHeight="${footerZoneH}" hasTextRef="0" hasNumRef="0">` + parasXml + `</hp:subList></hp:footer></hp:ctrl>`;
   }
-  return `<hp:run charPrIDRef="0">${inner}</hp:run>`;
+  return `<hp:run charPrIDRef="0" charTcId="0">${inner}</hp:run>`;
 }
 function buildSectionXml(sheet, dims, ctx) {
   const secPrXml = buildSecPrXml(dims);
@@ -4386,9 +4667,9 @@ function buildSectionXml(sheet, dims, ctx) {
     const fs = 1e3;
     const vs = 1600;
     const { xml: linesegXml } = buildLinesegarray(" ", 0, fs, vs / (fs / 100), availWidth);
-    contentXml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">` + secPrXml + hfRunXml + `<hp:run charPrIDRef="0"><hp:t xml:space="preserve"> </hp:t></hp:run>` + linesegXml + `</hp:p>`;
+    contentXml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0" paraTcId="0">` + secPrXml + hfRunXml + `<hp:run charPrIDRef="0" charTcId="0"><hp:t xml:space="preserve"> </hp:t></hp:run>` + linesegXml + `</hp:p>`;
   }
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hs:sec ${NS}>${contentXml}</hs:sec>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hs:sec ${NS} xmlns:hwpunitchar="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar">${contentXml}</hs:sec>`;
 }
 function buildSecPrXml(dims) {
   const wHwp = Metric.ptToHwp(dims.wPt);
@@ -4400,7 +4681,7 @@ function buildSecPrXml(dims) {
   const headerZone = dims.headerPt ? Math.max(0, mt - Metric.ptToHwp(dims.headerPt)) : 0;
   const footerZone = dims.footerPt ? Math.max(0, mb - Metric.ptToHwp(dims.footerPt)) : 0;
   const pageBorderFill = `<hp:pageBorderFill type="BOTH" borderFillIDRef="1" textBorder="PAPER" headerInside="0" footerInside="0" fillArea="PAPER"><hp:offset left="1417" right="1417" top="1417" bottom="1417"/></hp:pageBorderFill><hp:pageBorderFill type="EVEN" borderFillIDRef="1" textBorder="PAPER" headerInside="0" footerInside="0" fillArea="PAPER"><hp:offset left="1417" right="1417" top="1417" bottom="1417"/></hp:pageBorderFill><hp:pageBorderFill type="ODD" borderFillIDRef="1" textBorder="PAPER" headerInside="0" footerInside="0" fillArea="PAPER"><hp:offset left="1417" right="1417" top="1417" bottom="1417"/></hp:pageBorderFill>`;
-  return `<hp:secPr id="0" textDirection="HORIZONTAL" spaceColumns="1134" tabStop="8000" outlineShapeIDRef="0" memoShapeIDRef="0" textVerticalWidthHead="0" masterPageCnt="0"><hp:grid lineGrid="0" charGrid="0" wonggojiFormat="0"/><hp:startNum pageStartsOn="BOTH" page="0" pic="0" tbl="0" equation="0"/><hp:visibility hideFirstHeader="0" hideFirstFooter="0" hideFirstMasterPage="0" border="SHOW_ALL" fill="SHOW_ALL" hideFirstPageNum="0" hideFirstEmptyLine="0" showLineNumber="0"/><hp:lineNumberShape restartType="0" countBy="0" distance="0" startNumber="0"/><hp:pagePr landscape="${dims.orient === "landscape" ? "NARROWLY" : "WIDELY"}" width="${wHwp}" height="${hHwp}" gutterType="LEFT_ONLY"><hp:margin header="${headerZone}" footer="${footerZone}" gutter="0" left="${ml}" right="${mr}" top="${mt}" bottom="${mb}"/></hp:pagePr><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/><hp:footNotePr><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar="" supscript="1"/><hp:noteLine length="-1" type="SOLID" width="0.25 mm" color="#000000"/><hp:noteSpacing betweenNotes="283" belowLine="0" aboveLine="1000"/><hp:numbering type="CONTINUOUS" newNum="1"/><hp:placement place="EACH_COLUMN" beneathText="0"/></hp:footNotePr><hp:endNotePr><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar="" supscript="1"/><hp:noteLine length="-1" type="SOLID" width="0.25 mm" color="#000000"/><hp:noteSpacing betweenNotes="0" belowLine="0" aboveLine="1000"/><hp:numbering type="CONTINUOUS" newNum="1"/><hp:placement place="END_OF_DOCUMENT" beneathText="0"/></hp:endNotePr>` + pageBorderFill + `</hp:secPr>`;
+  return `<hp:secPr id="0" textDirection="HORIZONTAL" spaceColumns="1134" tabStop="8000" outlineShapeIDRef="0" memoShapeIDRef="0" textVerticalWidthHead="0" masterPageCnt="0"><hp:grid lineGrid="0" charGrid="0" wonggojiFormat="0"/><hp:startNum pageStartsOn="BOTH" page="0" pic="0" tbl="0" equation="0"/><hp:visibility hideFirstHeader="0" hideFirstFooter="0" hideFirstMasterPage="0" border="SHOW_ALL" fill="SHOW_ALL" hideFirstPageNum="0" hideFirstEmptyLine="0" showLineNumber="0"/><hp:lineNumberShape restartType="0" countBy="0" distance="0" startNumber="0"/><hp:pagePr landscape="${dims.wPt >= dims.hPt ? "WIDELY" : "NARROWLY"}" width="${wHwp}" height="${hHwp}" gutterType="LEFT_ONLY"><hp:margin header="${headerZone}" footer="${footerZone}" gutter="0" left="${ml}" right="${mr}" top="${mt}" bottom="${mb}"/></hp:pagePr><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/><hp:footNotePr><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar="" supscript="1"/><hp:noteLine length="-1" type="SOLID" width="0.25 mm" color="#000000"/><hp:noteSpacing betweenNotes="283" belowLine="0" aboveLine="1000"/><hp:numbering type="CONTINUOUS" newNum="1"/><hp:placement place="EACH_COLUMN" beneathText="0"/></hp:footNotePr><hp:endNotePr><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar="" supscript="1"/><hp:noteLine length="-1" type="SOLID" width="0.25 mm" color="#000000"/><hp:noteSpacing betweenNotes="0" belowLine="0" aboveLine="1000"/><hp:numbering type="CONTINUOUS" newNum="1"/><hp:placement place="END_OF_DOCUMENT" beneathText="0"/></hp:endNotePr>` + pageBorderFill + `</hp:secPr>`;
 }
 function buildLinesegarray(text, vertPosStart, fontSize, lineSpacingPct, horzSize) {
   const vertsizeLine = Math.round(fontSize * lineSpacingPct / 100);
@@ -4410,13 +4691,15 @@ function buildLinesegarray(text, vertPosStart, fontSize, lineSpacingPct, horzSiz
   const charW = isKorean ? fontSize : Math.round(fontSize * 0.47);
   const charsPerLine = Math.max(1, Math.floor(horzSize / charW));
   const lineCount = text.length === 0 ? 1 : Math.ceil(text.length / charsPerLine);
-  let innerXml = "";
+  const linesegParts = [];
   for (let i = 0; i < lineCount; i++) {
-    const flags = i === 0 ? 1441792 : 393216;
-    innerXml += `<hp:lineseg textpos="${i * charsPerLine}" vertpos="${vertPosStart + i * vertsizeLine}" vertsize="${vertsizeLine}" textheight="${fontSize}" baseline="${baseline}" spacing="${spacing}" horzpos="0" horzsize="${horzSize}" flags="${flags}"/>`;
+    const flags = i === 0 ? LINESEG_FLAGS_FIRST : LINESEG_FLAGS_OTHER;
+    linesegParts.push(
+      `<hp:lineseg textpos="${i * charsPerLine}" vertpos="${vertPosStart + i * vertsizeLine}" vertsize="${vertsizeLine}" textheight="${fontSize}" baseline="${baseline}" spacing="${spacing}" horzpos="0" horzsize="${horzSize}" flags="${flags}"/>`
+    );
   }
   return {
-    xml: `<hp:linesegarray>${innerXml}</hp:linesegarray>`,
+    xml: `<hp:linesegarray>${linesegParts.join("")}</hp:linesegarray>`,
     totalHeight: lineCount * vertsizeLine
   };
 }
@@ -4471,7 +4754,7 @@ function encodeParaPositioned(para, ctx, vertPos, secPr = "", availWidth, hfRun 
       vertSize
     );
   let runsXml = encodeParaKids(para.kids, ctx);
-  if (!runsXml) runsXml = `<hp:run charPrIDRef="0"><hp:t xml:space="preserve"> </hp:t></hp:run>`;
+  if (!runsXml) runsXml = `<hp:run charPrIDRef="0" charTcId="0"><hp:t xml:space="preserve"> </hp:t></hp:run>`;
   const paraText = extractParaText(para);
   const { xml: linesegXml, totalHeight } = buildLinesegarray(
     paraText,
@@ -4483,7 +4766,7 @@ function encodeParaPositioned(para, ctx, vertPos, secPr = "", availWidth, hfRun 
   const hasPageBreak = para.kids.some(
     (k) => k.tag === "span" && k.kids.some((c) => c.tag === "pb")
   );
-  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="${paraPrId}" styleIDRef="${styleIDRef}" pageBreak="${hasPageBreak ? 1 : 0}" columnBreak="0" merged="0">` + secPr + hfRun + runsXml + linesegXml + `</hp:p>`;
+  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="${paraPrId}" styleIDRef="${styleIDRef}" pageBreak="${hasPageBreak ? 1 : 0}" columnBreak="0" merged="0" paraTcId="0">` + secPr + hfRun + runsXml + linesegXml + `</hp:p>`;
   return { xml, nextVertPos: vertPos + totalHeight };
 }
 function encodeTablePara(para, grid, ctx, vertPos, secPr, hfRun) {
@@ -4494,7 +4777,7 @@ function encodeTablePara(para, grid, ctx, vertPos, secPr, hfRun) {
   const baseline = 850;
   const spacing = Math.max(0, totalHeight - fontSize);
   const linesegXml = `<hp:linesegarray><hp:lineseg textpos="0" vertpos="${vertPos}" vertsize="${totalHeight}" textheight="${fontSize}" baseline="${baseline}" spacing="${spacing}" horzpos="0" horzsize="${ctx.availableWidth}" flags="1441792"/></hp:linesegarray>`;
-  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="${paraPrId}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">` + secPr + gridXml + hfRun + linesegXml + `</hp:p>`;
+  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="${paraPrId}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0" paraTcId="0">` + secPr + gridXml + hfRun + linesegXml + `</hp:p>`;
   return { xml, nextVertPos: vertPos + totalHeight };
 }
 function encodeCodeBlockPositioned(para, ctx, vertPos, secPr, fontSize, spacing, vertSize) {
@@ -4515,7 +4798,7 @@ function encodeCodeBlockPositioned(para, ctx, vertPos, secPr, fontSize, spacing,
     // 코드 블록 기본 줄간격 160%
     ctx.availableWidth
   );
-  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0">` + secPr + `<hp:run charPrIDRef="0"><hp:tbl id="${ctx.nextElementId++}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="NONE" rowCnt="1" colCnt="1" cellSpacing="0" borderFillIDRef="${codeBfId}" noAdjust="0"><hp:sz width="${cellW}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="138" right="138" top="138" bottom="138"/><hp:inMargin left="138" right="138" top="138" bottom="138"/><hp:tr><hp:tc name="" header="0" hasMargin="1" protect="0" editable="0" dirty="0" borderFillIDRef="${codeBfId}"><hp:subList id="${subListId}" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">` + innerXml + `</hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="${cellW}" height="0"/><hp:cellMargin left="283" right="283" top="141" bottom="141"/></hp:tc></hp:tr></hp:tbl><hp:t xml:space="preserve"> </hp:t></hp:run>` + linesegXml + `</hp:p>`;
+  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0" paraTcId="0">` + secPr + `<hp:run charPrIDRef="0" charTcId="0"><hp:tbl id="${ctx.nextElementId++}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="NONE" rowCnt="1" colCnt="1" cellSpacing="0" borderFillIDRef="${codeBfId}" noAdjust="0"><hp:sz width="${cellW}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="138" right="138" top="138" bottom="138"/><hp:inMargin left="138" right="138" top="138" bottom="138"/><hp:tr><hp:tc name="" header="0" hasMargin="1" protect="0" editable="0" dirty="0" borderFillIDRef="${codeBfId}"><hp:subList id="${subListId}" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">` + innerXml + `</hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="${cellW}" height="0"/><hp:cellMargin left="283" right="283" top="141" bottom="141"/></hp:tc></hp:tr></hp:tbl><hp:t xml:space="preserve"> </hp:t></hp:run>` + linesegXml + `</hp:p>`;
   return { xml, nextVertPos: vertPos + totalHeight };
 }
 function encodeParaKids(kids, ctx) {
@@ -4525,7 +4808,7 @@ function encodeParaKids(kids, ctx) {
   const flushRun = () => {
     if (currentRunCharPrId !== null) {
       const content = currentRunContent || `<hp:t xml:space="preserve"> </hp:t>`;
-      xml += `<hp:run charPrIDRef="${currentRunCharPrId}">${content}</hp:run>`;
+      xml += `<hp:run charPrIDRef="${currentRunCharPrId}" charTcId="0">${content}</hp:run>`;
     }
     currentRunCharPrId = null;
     currentRunContent = "";
@@ -4624,28 +4907,28 @@ function encodeImage(img, ctx) {
     hHwp = Math.round(hHwp * ctx.availableWidth / wHwp);
     wHwp = ctx.availableWidth;
   }
-  const cx = Math.round(wHwp / 2);
-  const cy = Math.round(hHwp / 2);
+  const rotationCenterX = Math.round(wHwp / 2);
+  const rotationCenterY = Math.round(hHwp / 2);
   const layout = img.layout;
   const isInline = !layout || layout.wrap === "inline";
   const textWrap = layout ? WRAP_MAP[layout.wrap] ?? "SQUARE" : "SQUARE";
   const textFlow = layout ? FLOW_MAP[layout.wrap] ?? "BOTH_SIDES" : "BOTH_SIDES";
   const zOrder = ctx.nextZOrder++;
-  return `<hp:pic id="${ctx.nextElementId++}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="${textFlow}" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="0" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${wHwp}" height="${hHwp}"/><hp:curSz width="${wHwp}" height="${hHwp}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${cx}" centerY="${cy}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${wHwp}" y="0"/><hc:pt2 x="${wHwp}" y="${hHwp}"/><hc:pt3 x="0" y="${hHwp}"/></hp:imgRect><hp:imgClip left="0" right="0" top="0" bottom="0"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${wHwp}" dimheight="${hHwp}"/><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/><hp:sz width="${wHwp}" widthRelTo="ABSOLUTE" height="${hHwp}" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="${isInline ? 1 : 0}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/></hp:pic>`;
+  return `<hp:pic id="${ctx.nextElementId++}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="${textFlow}" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="0" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${wHwp}" height="${hHwp}"/><hp:curSz width="${wHwp}" height="${hHwp}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${rotationCenterX}" centerY="${rotationCenterY}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${wHwp}" y="0"/><hc:pt2 x="${wHwp}" y="${hHwp}"/><hc:pt3 x="0" y="${hHwp}"/></hp:imgRect><hp:imgClip left="0" right="0" top="0" bottom="0"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${wHwp}" dimheight="${hHwp}"/><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/><hp:sz width="${wHwp}" widthRelTo="ABSOLUTE" height="${hHwp}" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="${isInline ? 1 : 0}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/></hp:pic>`;
 }
 function encodeImgWrapped(img, ctx) {
   const content = encodeImage(img, ctx);
   if (!img.b64) {
-    return `<hp:run charPrIDRef="0">${content}</hp:run>`;
+    return `<hp:run charPrIDRef="0" charTcId="0">${content}</hp:run>`;
   }
-  return `<hp:run charPrIDRef="0">${content}<hp:t xml:space="preserve"> </hp:t></hp:run>`;
+  return `<hp:run charPrIDRef="0" charTcId="0">${content}<hp:t xml:space="preserve"> </hp:t></hp:run>`;
 }
 function encodeGridPositioned(grid, ctx, vertPos, secPr = "", hfRun = "") {
   const { xml: gridXml, height: tblHeight } = buildGridXml(grid, ctx);
   const totalHeight = Math.max(1600, tblHeight);
   const fontSize = 1e3;
   const { xml: linesegXml } = buildLinesegarray(" ", vertPos, fontSize, totalHeight / (fontSize / 100), ctx.availableWidth);
-  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">` + secPr + hfRun + gridXml + linesegXml + `</hp:p>`;
+  const xml = `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0" paraTcId="0">` + secPr + hfRun + gridXml + linesegXml + `</hp:p>`;
   return { xml, nextVertPos: vertPos + totalHeight };
 }
 function buildGridXml(grid, ctx) {
@@ -4727,7 +5010,7 @@ function buildGridXml(grid, ctx) {
       const padT = cp.padT !== void 0 ? Metric.ptToHwp(cp.padT) : 141;
       const padB = cp.padB !== void 0 ? Metric.ptToHwp(cp.padB) : 141;
       const innerW = Math.max(cellW - padL - padR, 100);
-      const parasXml = cell.kids.length > 0 ? cell.kids.map((p) => encodeParaPositioned(p, ctx, 0, "", innerW).xml).join("") : `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t xml:space="preserve"> </hp:t></hp:run></hp:p>`;
+      const parasXml = cell.kids.length > 0 ? cell.kids.map((p) => encodeParaPositioned(p, ctx, 0, "", innerW).xml).join("") : `<hp:p id="${ctx.nextElementId++}" paraPrIDRef="0" styleIDRef="0" paraTcId="0"><hp:run charPrIDRef="0" charTcId="0"><hp:t xml:space="preserve"> </hp:t></hp:run></hp:p>`;
       const vAlign = cp.va === "mid" ? "CENTER" : cp.va === "bot" ? "BOTTOM" : "TOP";
       cellsXml += `<hp:tc name="" header="0" hasMargin="1" protect="0" editable="0" dirty="0" borderFillIDRef="${cellBfId}"><hp:cellAddr colAddr="${ci}" rowAddr="${ri}"/><hp:cellSpan colSpan="${cell.cs}" rowSpan="${cell.rs}"/><hp:cellSz width="${cellW}" height="${rowHeights[ri]}"/><hp:cellMargin left="${padL}" right="${padR}" top="${padT}" bottom="${padB}"/><hp:subList id="${subListId}" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="${vAlign}" linkListIDRef="0" linkListNextIDRef="0" textWidth="${innerW}" textHeight="${Math.max(100, rowHeights[ri] - padT - padB)}" hasTextRef="0" hasNumRef="0">` + parasXml + `</hp:subList></hp:tc>`;
     }
@@ -4779,7 +5062,7 @@ function extractPreviewText(sheet) {
 }
 function esc(s) {
   if (!s) return "";
-  s = s.replace(/__EXT_\d+__/g, "");
+  s = s.replace(/__EXT_\d+(?:_W\d+_H\d+)?__/g, "");
   s = s.replace(/湰灧/g, "").replace(/\uFEFF/g, "");
   s = s.replace(
     /[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu,
@@ -4966,7 +5249,7 @@ function stylesXml() {
       <w:szCs w:val="20"/>
     </w:rPr></w:rPrDefault>
     <w:pPrDefault><w:pPr>
-      <w:spacing w:after="0" w:line="384" w:lineRule="auto"/>
+      <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
       <w:jc w:val="both"/>
     </w:pPr></w:pPrDefault>
   </w:docDefaults>
@@ -5069,19 +5352,19 @@ function encodeParaInner(para, ctx) {
   const { spaceBefore, spaceAfter, lineHeight } = para.props;
   if (spaceBefore !== void 0 || spaceAfter !== void 0 || lineHeight !== void 0) {
     const parts = [];
-    if (spaceBefore !== void 0) parts.push(`w:before="${Metric.ptToDxa(spaceBefore)}"`);
-    if (spaceAfter !== void 0) parts.push(`w:after="${Metric.ptToDxa(spaceAfter)}"`);
+    if (spaceBefore !== void 0) parts.push(`w:before="${Math.max(0, Metric.ptToDxa(spaceBefore))}"`);
+    if (spaceAfter !== void 0) parts.push(`w:after="${Math.max(0, Metric.ptToDxa(spaceAfter))}"`);
     if (lineHeight !== void 0) parts.push(`w:line="${Math.round(lineHeight * 240)}" w:lineRule="auto"`);
     spacingXml = `<w:spacing ${parts.join(" ")}/>`;
   }
   let indentXml = "";
-  const leftDxa = para.props.indentPt !== void 0 ? Metric.ptToDxa(para.props.indentPt) : 0;
+  const leftDxa = para.props.indentPt !== void 0 ? Math.max(0, Metric.ptToDxa(para.props.indentPt)) : 0;
   const firstPt = para.props.firstLineIndentPt;
   if (leftDxa > 0 || firstPt !== void 0) {
     const parts = [];
     if (leftDxa > 0) parts.push(`w:left="${leftDxa}"`);
     if (firstPt !== void 0) {
-      const dxa = Metric.ptToDxa(Math.abs(firstPt));
+      const dxa = Metric.ptToDxa(Math.max(0, Math.abs(firstPt)));
       if (firstPt >= 0) parts.push(`w:firstLine="${dxa}"`);
       else parts.push(`w:hanging="${dxa}"`);
     }
@@ -5113,7 +5396,10 @@ function encodeRun(span, _ctx) {
   const parts = [];
   for (const kid of span.kids) {
     if (kid.tag === "txt") {
-      parts.push(`<w:r><w:rPr>${rPr.join("")}</w:rPr><w:t xml:space="preserve">${esc2(kid.content)}</w:t></w:r>`);
+      const content = kid.content.replace(/__EXT_\d+(?:_W\d+_H\d+)?__/g, "");
+      if (content) {
+        parts.push(`<w:r><w:rPr>${rPr.join("")}</w:rPr><w:t xml:space="preserve">${esc2(content)}</w:t></w:r>`);
+      }
     } else if (kid.tag === "pagenum") {
       parts.push(`<w:r><w:rPr>${rPr.join("")}</w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr>${rPr.join("")}</w:rPr><w:instrText> PAGE </w:instrText></w:r><w:r><w:rPr>${rPr.join("")}</w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr>${rPr.join("")}</w:rPr><w:t>1</w:t></w:r><w:r><w:rPr>${rPr.join("")}</w:rPr><w:fldChar w:fldCharType="end"/></w:r>`);
     } else if (kid.tag === "br") {
@@ -5127,8 +5413,8 @@ function encodeRun(span, _ctx) {
 function encodeImage2(img, ctx) {
   const rId = ctx.imgMap.get(img);
   if (!rId) return "";
-  const cx = Metric.ptToEmu(img.w);
-  const cy = Metric.ptToEmu(img.h);
+  const cx = Metric.ptToEmu(img.w > 0 ? img.w : 72);
+  const cy = Metric.ptToEmu(img.h > 0 ? img.h : 72);
   const alt = esc2(img.alt ?? "");
   const docPrId = ctx.nextId++;
   const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="Image"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>`;
@@ -5265,10 +5551,10 @@ function encodeGrid(grid, ctx, dims) {
   }
   const totalDxa = colWidthsDxa.reduce((s, w) => s + w, 0);
   const gridCols = colWidthsDxa.map((w) => `<w:gridCol w:w="${w}"/>`).join("");
-  const rows = grid.kids.map((row, ri) => {
+  const rows = tableMap.map((rowMap, ri) => {
     const cellXmls = [];
     for (let c = 0; c < colCount; c++) {
-      const mapEntry = tableMap[ri][c];
+      const mapEntry = rowMap[c];
       if (mapEntry.type === "absorbed") continue;
       const isContinue = mapEntry.type === "continue";
       const isReal = mapEntry.type === "real";
@@ -5276,10 +5562,11 @@ function encodeGrid(grid, ctx, dims) {
       if (isContinue || isReal || isVoid) {
         let cw = 0;
         const cellWidth = mapEntry.width || 1;
-        for (let sc = c; sc < c + cellWidth && sc < colWidthsDxa.length; sc++) {
-          cw += colWidthsDxa[sc];
+        const safeColWidths = colWidthsDxa.length >= colCount ? colWidthsDxa : [...colWidthsDxa, ...Array(colCount - colWidthsDxa.length).fill(defaultColDxa)];
+        for (let sc = c; sc < c + cellWidth && sc < safeColWidths.length; sc++) {
+          cw += safeColWidths[sc];
         }
-        if (cw === 0) cw = defaultColDxa * cellWidth;
+        if (cw <= 0) cw = defaultColDxa * cellWidth;
         const tcPrParts = [];
         tcPrParts.push(`<w:tcW w:w="${Math.round(cw)}" w:type="dxa"/>`);
         if (cellWidth > 1) {
@@ -5300,6 +5587,17 @@ function encodeGrid(grid, ctx, dims) {
             const vaMap = { top: "top", mid: "center", bot: "bottom" };
             tcPrParts.push(`<w:vAlign w:val="${vaMap[cp.va] ?? "top"}"/>`);
           }
+          const cPadT = cp.padT != null ? Math.round(Metric.ptToDxa(cp.padT)) : null;
+          const cPadB = cp.padB != null ? Math.round(Metric.ptToDxa(cp.padB)) : null;
+          const cPadL = cp.padL != null ? Math.round(Metric.ptToDxa(cp.padL)) : null;
+          const cPadR = cp.padR != null ? Math.round(Metric.ptToDxa(cp.padR)) : null;
+          if (cPadT != null || cPadB != null || cPadL != null || cPadR != null) {
+            const t = cPadT ?? 28;
+            const b = cPadB ?? 28;
+            const l = cPadL ?? 72;
+            const r = cPadR ?? 72;
+            tcPrParts.push(`<w:tcMar><w:top w:w="${t}" w:type="dxa"/><w:left w:w="${l}" w:type="dxa"/><w:bottom w:w="${b}" w:type="dxa"/><w:right w:w="${r}" w:type="dxa"/></w:tcMar>`);
+          }
           cellContent = cell.kids.map((p) => encodeParaInner(p, ctx)).join("");
         } else {
           cellContent = `<w:p><w:pPr/></w:p>`;
@@ -5312,9 +5610,10 @@ function encodeGrid(grid, ctx, dims) {
     if (ri === 0 && (gp.headerRow || look?.firstRow)) {
       trPrParts.push("<w:tblHeader/>");
     }
-    if (row.heightPt != null && row.heightPt > 0) {
-      const hDxa = Math.round(Metric.ptToDxa(row.heightPt));
-      trPrParts.push(`<w:trHeight w:val="${hDxa}" w:hRule="exact"/>`);
+    const originalRow = grid.kids[ri];
+    if (originalRow?.heightPt != null && originalRow.heightPt > 0) {
+      const hDxa = Math.round(Metric.ptToDxa(originalRow.heightPt));
+      trPrParts.push(`<w:trHeight w:val="${hDxa}" w:hRule="atLeast"/>`);
     }
     const trPr = trPrParts.length > 0 ? `<w:trPr>${trPrParts.join("")}</w:trPr>` : "";
     return `    <w:tr>${trPr}
@@ -5348,7 +5647,7 @@ ${cellXmls.join("\n")}
     }
   }
   return `    <w:tbl>
-      <w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${Math.round(totalDxa)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblLook w:val="04A0" w:firstRow="${firstRow}" w:lastRow="${lastRow}" w:firstColumn="${firstCol}" w:lastColumn="${lastCol}" w:noHBand="${noHBand}" w:noVBand="${noVBand}"/>${tblBorders}<w:tblCellMar><w:top w:w="28" w:type="dxa"/><w:left w:w="102" w:type="dxa"/><w:bottom w:w="28" w:type="dxa"/><w:right w:w="102" w:type="dxa"/></w:tblCellMar></w:tblPr>
+      <w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${Math.round(totalDxa)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblLook w:val="04A0" w:firstRow="${firstRow}" w:lastRow="${lastRow}" w:firstColumn="${firstCol}" w:lastColumn="${lastCol}" w:noHBand="${noHBand}" w:noVBand="${noVBand}"/>${tblBorders}<w:tblCellMar><w:top w:w="28" w:type="dxa"/><w:left w:w="72" w:type="dxa"/><w:bottom w:w="28" w:type="dxa"/><w:right w:w="72" w:type="dxa"/></w:tblCellMar></w:tblPr>
       <w:tblGrid>${gridCols}</w:tblGrid>
 ${rows}
     </w:tbl>`;
@@ -5379,7 +5678,7 @@ function encodeCellBorders(cp) {
 }
 function esc2(s) {
   if (!s) return "";
-  s = s.replace(/__EXT_\d+__/g, "");
+  s = s.replace(/__EXT_\d+(?:_W\d+_H\d+)?__/g, "");
   s = s.replace(/湰灧/g, "");
   s = s.replace(/\uFEFF/g, "");
   s = s.replace(/[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]/g, "");
@@ -5590,7 +5889,7 @@ body { margin: 0; padding: 0; background: #f0f0f0; }
 .hwp-doc { max-width: 800px; margin: 0 auto; background: #fff; padding: 40px 60px; box-shadow: 0 0 8px rgba(0,0,0,0.15); }
 .hwp-header, .hwp-footer { color: #666; font-size: 0.9em; border-bottom: 1px solid #ddd; margin-bottom: 8px; padding-bottom: 4px; }
 .hwp-footer { border-top: 1px solid #ddd; border-bottom: none; margin-top: 8px; padding-top: 4px; }
-p { margin: 0; padding: 0; line-height: 1.6; }
+p { margin: 0; padding: 0; line-height: 1; }
 table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 td, th { border: 1px solid #ccc; padding: 4px 8px; vertical-align: top; }
 img { max-width: 100%; height: auto; }
@@ -5637,7 +5936,8 @@ function encodeSpan2(span, warns) {
   let hasPageNum = false;
   for (const kid of span.kids) {
     if (kid.tag === "txt") {
-      parts.push(TextKit.escapeXml(kid.content));
+      const content = kid.content.replace(/__EXT_\d+(?:_W\d+_H\d+)?__/g, "");
+      if (content) parts.push(TextKit.escapeXml(content));
     } else if (kid.tag === "br") {
       parts.push("<br>");
     } else if (kid.tag === "pb") {
@@ -6487,12 +6787,24 @@ function buildBodyTextStream(doc, bank, images) {
   return concatU8(chunks);
 }
 function buildHwpFileHeader() {
-  const buf = new Uint8Array(256);
-  const sig = "HWP Document File";
-  for (let i = 0; i < sig.length; i++) buf[i] = sig.charCodeAt(i);
+  const SIZE = 256;
+  const buf = new Uint8Array(SIZE);
   const dv = new DataView(buf.buffer);
+  const sig = "HWP Document File";
+  for (let i = 0; i < sig.length; i++) {
+    buf[i] = sig.charCodeAt(i);
+  }
   dv.setUint32(32, 83886848, true);
   dv.setUint32(36, 1, true);
+  if (buf.length !== SIZE) {
+    throw new Error(`FileHeader \uD06C\uAE30 \uC624\uB958: ${buf.length} (\uAE30\uB300: ${SIZE})`);
+  }
+  if (new TextDecoder().decode(buf.subarray(0, sig.length)) !== sig) {
+    throw new Error("FileHeader \uC2DC\uADF8\uB2C8\uCC98 \uC624\uB958");
+  }
+  if (dv.getUint32(32, true) !== 83886848) {
+    throw new Error("FileHeader \uBC84\uC804 \uC624\uB958");
+  }
   return buf;
 }
 function buildHwpOle2(fileHeaderData, docInfoData, section0Data, binImages = []) {
@@ -6500,6 +6812,9 @@ function buildHwpOle2(fileHeaderData, docInfoData, section0Data, binImages = [])
   const ENDOFCHAIN = 4294967294;
   const FREESECT = 4294967295;
   const FATSECT = 4294967293;
+  if (fileHeaderData.length < 256) {
+    throw new Error(`FileHeader \uD06C\uAE30 \uBD80\uC871: ${fileHeaderData.length} (\uCD5C\uC18C 256)`);
+  }
   function padSector(d) {
     const n = Math.ceil(Math.max(d.length, 1) / SS) * SS;
     if (d.length === n) return d;
@@ -6621,19 +6936,21 @@ function buildHwpOle2(fileHeaderData, docInfoData, section0Data, binImages = [])
   });
   hdv.setUint16(24, 62, true);
   hdv.setUint16(26, 3, true);
-  hdv.setUint16(28, 65534, true);
+  hdv.setUint16(28, 254, true);
   hdv.setUint16(30, 9, true);
   hdv.setUint16(32, 6, true);
-  hdv.setUint32(40, 0, true);
-  hdv.setUint32(44, fatN, true);
-  hdv.setUint32(48, dir1Sec, true);
-  hdv.setUint32(52, 0, true);
-  hdv.setUint32(56, 4096, true);
-  hdv.setUint32(60, ENDOFCHAIN, true);
-  hdv.setUint32(64, 0, true);
-  hdv.setUint32(68, ENDOFCHAIN, true);
+  hdv.setUint32(40, fatN, true);
+  hdv.setUint32(44, dir1Sec, true);
+  hdv.setUint32(48, 0, true);
+  hdv.setUint32(52, 4096, true);
+  hdv.setUint32(56, ENDOFCHAIN, true);
+  hdv.setUint32(60, 0, true);
+  hdv.setUint32(64, ENDOFCHAIN, true);
+  hdv.setUint32(68, 0, true);
   hdv.setUint32(72, 0, true);
-  for (let i = 0; i < 109; i++) hdv.setUint32(76 + i * 4, i < fatN ? i : FREESECT, true);
+  for (let i = 0; i < 109; i++) {
+    hdv.setUint32(76 + i * 4, i < fatN ? i : FREESECT, true);
+  }
   const out = new Uint8Array(SS + totalSec * SS);
   out.set(hdr, 0);
   for (let i = 0; i < fatN; i++) out.set(fatBuf.subarray(i * SS, (i + 1) * SS), SS + i * SS);
@@ -6661,6 +6978,9 @@ function validateOle2Magic(hwp) {
 var HwpEncoder = class extends BaseEncoder {
   getFormat() {
     return "hwp";
+  }
+  getAliases() {
+    return ["application/vnd.hancom.hwp"];
   }
   async encode(doc) {
     try {
@@ -6696,9 +7016,15 @@ var HwpEncoder = class extends BaseEncoder {
       const docInfoCmp = pako3.deflateRaw(docInfoRaw);
       const bodyCmp = pako3.deflateRaw(bodyRaw);
       const fileHdr = buildHwpFileHeader();
+      if (fileHdr.length !== 256) {
+        return fail(`HwpEncoder: FileHeader \uD06C\uAE30 \uC624\uB958 - ${fileHdr.length} bytes (\uAE30\uB300: 256 bytes)`);
+      }
       const hwp = buildHwpOle2(fileHdr, docInfoCmp, bodyCmp, images);
       if (!validateOle2Magic(hwp)) {
         return fail("HwpEncoder: OLE2 \uB9E4\uC9C1 \uBC14\uC774\uD2B8 \uC624\uB958");
+      }
+      if (hwp.length < 512) {
+        return fail(`HwpEncoder: HWP \uD30C\uC77C \uD06C\uAE30 \uBD80\uC871 - ${hwp.length} bytes (\uCD5C\uC18C 512 bytes)`);
       }
       return succeed(hwp);
     } catch (e) {
