@@ -210,16 +210,19 @@ interface Fail {
 declare function succeed<T>(data: T, warns?: string[]): Ok<T>;
 declare function fail(error: string, warns?: string[]): Fail;
 
+interface EncoderOptions {
+    [key: string]: any;
+}
+interface Encoder {
+    readonly format: string;
+    readonly aliases?: string[];
+    encode(doc: DocRoot, options?: EncoderOptions): Promise<Outcome<Uint8Array>>;
+}
+
 interface Decoder {
     readonly format: string;
     readonly aliases?: string[];
     decode(data: Uint8Array): Promise<Outcome<DocRoot>>;
-}
-
-interface Encoder {
-    readonly format: string;
-    readonly aliases?: string[];
-    encode(doc: DocRoot): Promise<Outcome<Uint8Array>>;
 }
 
 declare class Pipeline {
@@ -231,7 +234,7 @@ declare class Pipeline {
     /** File/Blob 비동기 입력 */
     static openAsync(input: File | Blob | Uint8Array | string, fmt?: string): Promise<Pipeline>;
     /** 목표 포맷으로 변환 */
-    to(targetFmt: string): Promise<Outcome<Uint8Array>>;
+    to(targetFmt: string, options?: EncoderOptions): Promise<Outcome<Uint8Array>>;
     /** DocRoot만 추출 (인코딩 없이) */
     inspect(): Promise<Outcome<DocRoot>>;
 }

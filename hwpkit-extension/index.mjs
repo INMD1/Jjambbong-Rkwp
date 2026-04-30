@@ -1981,7 +1981,7 @@ function parseTableCtrl(recs, ctrlIdx, di, shield) {
     const seqIdx = ci;
     const pc = shield.guard(
       () => parseCellRec(c.data, c.tag, recs, c.cStart, c.cEnd, di, shield, seqIdx, colCnt),
-      { row: Math.floor(ci / (colCnt || 1)), col: ci % (colCnt || 1), cs: 1, rs: 1, widthHwp: 0, props: {}, paras: [buildPara([buildSpan("")])] },
+      { row: Math.floor(ci / (colCnt || 1)), col: ci % (colCnt || 1), cs: 1, rs: 1, widthHwp: 0, heightHwp: void 0, props: {}, paras: [buildPara([buildSpan("")])] },
       `hwp:cell@${c.cStart}`
     );
     parsed.push(pc);
@@ -2028,9 +2028,16 @@ function parseTableCtrl(recs, ctrlIdx, di, shield) {
   for (let r = 0; r < actualRowCnt; r++) {
     const rc = parsed.filter((c) => c.row === r).sort((a, b) => a.col - b.col);
     if (rc.length === 0) continue;
+    let rowHeightPt = void 0;
+    for (const c of rc) {
+      if (c.heightHwp && c.heightHwp > 0) {
+        const hPt = Metric.hwpToPt(c.heightHwp);
+        rowHeightPt = rowHeightPt == null || hPt > rowHeightPt ? hPt : rowHeightPt;
+      }
+    }
     rows.push(buildRow(rc.map(
       (c) => buildCell(c.paras.length ? c.paras : [buildPara([buildSpan("")])], { cs: c.cs, rs: c.rs, props: c.props })
-    )));
+    ), rowHeightPt));
   }
   if (rows.length === 0) return { grid: null, next: i };
   let defStroke;
@@ -2048,6 +2055,7 @@ function parseTableCtrl(recs, ctrlIdx, di, shield) {
 function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
   let col, row, cs = 1, rs = 1;
   let widthHwp = 0;
+  let heightHwp = 0;
   const props = {};
   const attr = d.length >= 6 ? BinaryKit.readU32LE(d, 2) : 0;
   const va = attr >> 6 & 3;
@@ -2061,6 +2069,7 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
     cs = Math.max(1, BinaryKit.readU16LE(d, 12));
     rs = Math.max(1, BinaryKit.readU16LE(d, 14));
     widthHwp = BinaryKit.readU32LE(d, 16);
+    heightHwp = d.length >= 24 ? BinaryKit.readU32LE(d, 20) : 0;
     if (d.length >= 32) {
       const pL = BinaryKit.readU16LE(d, 24);
       const pR = BinaryKit.readU16LE(d, 26);
@@ -2082,6 +2091,7 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
     cs = d.length >= 12 ? Math.max(1, BinaryKit.readU16LE(d, 10)) : 1;
     rs = d.length >= 14 ? Math.max(1, BinaryKit.readU16LE(d, 12)) : 1;
     widthHwp = d.length >= 18 ? BinaryKit.readU32LE(d, 14) : 0;
+    heightHwp = d.length >= 22 ? BinaryKit.readU32LE(d, 18) : 0;
     if (d.length >= 30) {
       const pL = BinaryKit.readU16LE(d, 22);
       const pR = BinaryKit.readU16LE(d, 24);
@@ -2170,7 +2180,7 @@ function parseCellRec(d, tag, recs, cStart, cEnd, di, shield, seqIdx, colCnt) {
       k++;
     }
   }
-  return { row, col, cs, rs, props, widthHwp, paras: paras.length ? paras : [buildPara([buildSpan("")])] };
+  return { row, col, cs, rs, props, widthHwp, heightHwp: heightHwp || void 0, paras: paras.length ? paras : [buildPara([buildSpan("")])] };
 }
 function parsePageDef(d) {
   if (d.length < 24) return A4;
@@ -3770,6 +3780,31 @@ function parseTokens(tokens) {
     if (t.type === "tag" && !t.close) {
       switch (t.name) {
         case "html":
+          i++;
+          let bodyStart = -1;
+          let depth = 1;
+          while (i < tokens.length && depth > 0) {
+            if (tokens[i].type === "tag" && !tokens[i].close && tokens[i].name === "html") depth++;
+            else if (tokens[i].type === "tag" && tokens[i].close && tokens[i].name === "html") depth--;
+            else if (tokens[i].type === "tag" && !tokens[i].close && tokens[i].name === "body") {
+              bodyStart = i + 1;
+            }
+            i++;
+          }
+          if (bodyStart > 0) {
+            let bodyEnd = bodyStart;
+            let bodyDepth = 1;
+            while (bodyEnd < tokens.length && bodyDepth > 0) {
+              if (tokens[bodyEnd].type === "tag" && !tokens[bodyEnd].close && tokens[bodyEnd].name === "body") bodyDepth++;
+              else if (tokens[bodyEnd].type === "tag" && tokens[bodyEnd].close && tokens[bodyEnd].name === "body") bodyDepth--;
+              bodyEnd++;
+            }
+            bodyEnd--;
+            const bodyTokens = tokens.slice(bodyStart, bodyEnd);
+            const bodyKids = parseTokens(bodyTokens);
+            kids.push(...bodyKids);
+          }
+          continue;
         case "head":
         case "style":
         case "script":
@@ -3780,27 +3815,23 @@ function parseTokens(tokens) {
         case "section":
         case "article":
         case "main":
-          i++;
-          let depth = 1;
-          const blockKids = [];
-          while (i < tokens.length && depth > 0) {
-            const inner = tokens[i];
-            if (inner.type === "tag") {
-              if (!inner.close) {
-                if (inner.name && ["html", "head", "body", "div", "section", "article", "main"].includes(inner.name)) {
-                  depth++;
-                }
-              } else {
-                if (inner.name && ["html", "head", "body", "div", "section", "article", "main"].includes(inner.name)) {
-                  depth--;
-                }
-              }
-            } else if (inner.type === "text" && inner.content?.trim()) {
-              blockKids.push(buildPara([buildSpan(inner.content.trim())], {}));
+          const start = i + 1;
+          let end = start;
+          let divDepth = 1;
+          while (end < tokens.length && divDepth > 0) {
+            const t2 = tokens[end];
+            if (t2.type === "tag" && !t2.close) {
+              if (["html", "head", "body", "div", "section", "article", "main"].includes(t2.name ?? "")) divDepth++;
+            } else if (t2.type === "tag" && t2.close) {
+              if (["html", "head", "body", "div", "section", "article", "main"].includes(t2.name ?? "")) divDepth--;
             }
-            i++;
+            end++;
           }
-          kids.push(...blockKids);
+          end--;
+          const subTokens = tokens.slice(start, end);
+          const subKids = parseTokens(subTokens);
+          kids.push(...subKids);
+          i = end + 1;
           continue;
         case "p":
           i++;
@@ -5696,14 +5727,15 @@ var MdEncoder = class extends BaseEncoder {
   getFormat() {
     return "md";
   }
-  async encode(doc) {
+  async encode(doc, options) {
+    const includeImages = options?.includeImages !== false;
     try {
       const warns = [];
       const parts = [];
       for (const sheet of doc.kids) {
         if (sheet.headers && sheet.headers.default && sheet.headers.default.length > 0) warns.push("[SHIELD] MD: \uBA38\uB9AC\uAE00(header) \uD45C\uD604 \uBD88\uAC00 \u2014 \uC190\uC2E4\uB428");
         if (sheet.footers && sheet.footers.default && sheet.footers.default.length > 0) warns.push("[SHIELD] MD: \uBC14\uB2E5\uAE00(footer) \uD45C\uD604 \uBD88\uAC00 \u2014 \uC190\uC2E4\uB428");
-        for (const kid of sheet.kids) parts.push(encodeContent2(kid, warns));
+        for (const kid of sheet.kids) parts.push(encodeContent2(kid, warns, includeImages));
       }
       return succeed(this.stringToBytes(parts.join("\n\n")), warns);
     } catch (e) {
@@ -5711,13 +5743,13 @@ var MdEncoder = class extends BaseEncoder {
     }
   }
 };
-function encodeContent2(node, warns) {
-  return node.tag === "grid" ? encodeGrid2(node, warns) : encodePara(node, warns);
+function encodeContent2(node, warns, includeImages) {
+  return node.tag === "grid" ? encodeGrid2(node, warns, includeImages) : encodePara(node, warns, includeImages);
 }
-function encodePara(para, warns) {
+function encodePara(para, warns, includeImages) {
   const text = para.kids.map((k) => {
     if (k.tag === "span") return encodeSpan(k, warns);
-    if (k.tag === "img") return encodeImage3(k);
+    if (k.tag === "img") return encodeImage3(k, includeImages);
     return "";
   }).join("");
   if (para.props.heading) return `${"#".repeat(para.props.heading)} ${text}`;
@@ -5776,7 +5808,10 @@ function encodeSpan(span, warns) {
   if (span.props.sub) r = `<sub>${r}</sub>`;
   return r;
 }
-function encodeImage3(img) {
+function encodeImage3(img, includeImages) {
+  if (!includeImages) {
+    return `![${img.alt ?? ""}]`;
+  }
   return `![${img.alt ?? ""}](data:${img.mime};base64,${img.b64})`;
 }
 function strokeToCss(s) {
@@ -5787,7 +5822,7 @@ function strokeToCss(s) {
   const color = s.color.startsWith("#") ? s.color : `#${s.color}`;
   return `${px}px ${style} ${color}`;
 }
-function encodeGrid2(grid, warns) {
+function encodeGrid2(grid, warns, includeImages) {
   if (grid.kids.length === 0) return "";
   const rowCount = grid.kids.length;
   const occupancy = Array.from({ length: rowCount }, () => /* @__PURE__ */ new Set());
@@ -5829,7 +5864,7 @@ function encodeGrid2(grid, warns) {
       if (cell.props.va === "mid") styles[1] = "vertical-align:middle";
       else if (cell.props.va === "bot") styles[1] = "vertical-align:bottom";
       const tag = grid.props.headerRow && ri === 0 || cell.props.isHeader ? "th" : "td";
-      const content = cell.kids.map((p) => encodePara(p, warns)).join("\n");
+      const content = cell.kids.map((p) => encodePara(p, warns, includeImages)).join("\n");
       cells += `<${tag}${cs}${rs} style="${styles.join(";")}">${content}</${tag}>`;
       colIdx += cell.cs;
     }
@@ -7075,14 +7110,14 @@ var Pipeline = class _Pipeline {
     return new _Pipeline(data, detectedFmt);
   }
   /** 목표 포맷으로 변환 */
-  async to(targetFmt) {
+  async to(targetFmt, options) {
     const decoder = registry.getDecoder(this.srcFmt);
     const encoder = registry.getEncoder(targetFmt);
     if (!decoder) return fail(`\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC785\uB825 \uD3EC\uB9F7: ${this.srcFmt}`);
     if (!encoder) return fail(`\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uCD9C\uB825 \uD3EC\uB9F7: ${targetFmt}`);
     const docResult = await decoder.decode(this.raw);
     if (!docResult.ok) return docResult;
-    const encResult = await encoder.encode(docResult.data);
+    const encResult = await encoder.encode(docResult.data, options);
     if (!encResult.ok) return { ...encResult, warns: [...docResult.warns, ...encResult.warns] };
     return { ...encResult, warns: [...docResult.warns, ...encResult.warns] };
   }
