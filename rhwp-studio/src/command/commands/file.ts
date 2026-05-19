@@ -448,11 +448,15 @@ async function exportToFormat(
     const bytes = processResult.data;
 
     // 포맷별 설정
+    const matched = EXPORT_FORMATS.find(f => f.format === format);
+    if (!matched) {
+      throw new Error(`지원하지 않는 내보내기 형식입니다: ${format}`);
+    }
+
     const formatConfig = {
-      docx: { ext: '.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-      md: { ext: '.md', mimeType: 'text/markdown' },
-      html: { ext: '.html', mimeType: 'text/html' },
-    }[format];
+      ext: matched.extension,
+      mimeType: matched.mimeType,
+    };
 
     // 파일 이름 결정
     let fileName = suggestedName ?? wasm.fileName;

@@ -15,6 +15,9 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@wasm': resolve(__dirname, '..', 'pkg'),
+      'hwpkit-extension': resolve(__dirname, '..', 'hwpkit-extension'),
+      'pako': resolve(__dirname, 'node_modules', 'pako'),
+      'saxes': resolve(__dirname, 'node_modules', 'saxes'),
     },
   },
   server: {
